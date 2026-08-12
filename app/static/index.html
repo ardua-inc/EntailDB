@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EntailDB</title>
+<style>
+  :root {
+    --bg:#faf9f7; --panel:#fff; --ink:#1b1a17; --muted:#6b6862;
+    --line:#e3e0da; --accent:#2f6f5e; --warn:#9a3b26; --code:#f4f2ee;
+    --head:57px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16171a; --panel:#1e2024; --ink:#e8e6e1; --muted:#9b978f;
+            --line:#2e3137; --accent:#6bbfa4; --warn:#e08a72; --code:#24272c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel);
+           position:sticky; top:0; z-index:5;
+           /* Fixed so the sidebar can stick directly beneath it. */
+           height:var(--head); box-sizing:border-box; }
+  header h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:-.01em; }
+  select, input, button, textarea { font:inherit; color:inherit; }
+  select, input { background:var(--panel); border:1px solid var(--line);
+                  border-radius:6px; padding:6px 8px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:7px 13px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  .layout { display:flex; align-items:flex-start; }
+  main { flex:1; min-width:0; max-width:900px; margin:0 auto;
+         padding:20px 16px 140px; }
+
+  aside { flex:none; width:236px; position:sticky; top:var(--head);
+          height:calc(100vh - var(--head)); overflow-y:auto;
+          border-right:1px solid var(--line); padding:12px 10px;
+          background:var(--panel); }
+  aside[hidden] { display:none; }
+  .newThread { width:100%; margin-bottom:10px; background:transparent;
+               border:1px dashed var(--line); color:var(--muted);
+               border-radius:8px; padding:8px; text-align:left; }
+  .newThread:hover { color:var(--ink); border-color:var(--muted); }
+  .threads li { display:flex; align-items:center; gap:4px; border:none;
+                padding:0; margin:1px 0; }
+  .threads a { flex:1; min-width:0; display:block; padding:7px 8px;
+               border-radius:7px; color:var(--muted); text-decoration:none;
+               font-size:13px; cursor:pointer; }
+  .threads a:hover { background:var(--code); color:var(--ink); }
+  .threads li.on a { background:var(--code); color:var(--ink); }
+  .threads .t { display:block; overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; }
+  .threads .w { display:block; font-size:11px; opacity:.7; margin-top:2px; }
+  .threads button { visibility:hidden; background:transparent; border:none;
+                    color:var(--muted); cursor:pointer; padding:2px 5px;
+                    border-radius:5px; font-size:13px; }
+  .threads li:hover button { visibility:visible; }
+  .threads button:hover { color:var(--warn); }
+  .empty { color:var(--muted); font-size:12.5px; padding:8px; }
+
+  @media (max-width:800px) {
+    aside { position:fixed; left:0; top:var(--head); z-index:4;
+            box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  }
+  .msg { margin:18px 0; }
+  .who { font-size:12px; text-transform:uppercase; letter-spacing:.07em;
+         color:var(--muted); margin-bottom:6px; }
+  .bubble { white-space:pre-wrap; }
+  .bubble.md { white-space:normal; }
+  .bubble.md > :first-child { margin-top:0; }
+  .bubble.md > :last-child { margin-bottom:0; }
+  .bubble.md p, .bubble.md ul, .bubble.md ol { margin:.6em 0; }
+  .bubble.md li { margin:.15em 0; }
+  .bubble.md h1, .bubble.md h2, .bubble.md h3 { font-size:1em; margin:.9em 0 .4em; }
+  .bubble.md table { margin:.6em 0; width:auto; max-width:100%; }
+  .bubble.md code { background:var(--code); padding:1px 5px; border-radius:4px;
+                    font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .bubble.md pre { margin:.6em 0; border-radius:6px; }
+  .bubble.md pre code { background:none; padding:0; }
+  .user .bubble { background:var(--panel); border:1px solid var(--line);
+                  border-radius:10px; padding:10px 12px; }
+  details.trace { margin:10px 0; border:1px solid var(--line); border-radius:8px;
+                  background:var(--panel); overflow:hidden; }
+  details.trace > summary { cursor:pointer; padding:8px 12px; font-size:13px;
+                            color:var(--muted); list-style:none;
+                            display:flex; align-items:center; gap:6px; }
+  .copy { margin-left:auto; background:transparent; border:1px solid var(--line);
+          color:var(--muted); border-radius:6px; padding:3px 7px; line-height:0;
+          cursor:pointer; flex:none; }
+  .copy:hover { color:var(--ink); border-color:var(--muted); }
+  .copy.done { color:var(--accent); border-color:var(--accent); }
+  .copy svg { display:block; }
+  details.trace > summary::-webkit-details-marker { display:none; }
+  details.trace > summary::before { content:"▸ "; }
+  details.trace[open] > summary::before { content:"▾ "; }
+  pre { margin:0; padding:10px 12px; background:var(--code); overflow-x:auto;
+        font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; display:block;
+          overflow-x:auto; max-height:340px; }
+  th,td { border:1px solid var(--line); padding:4px 8px; text-align:left;
+          white-space:nowrap; }
+  th { background:var(--code); position:sticky; top:0; }
+  .ver { font-size:11px; color:var(--muted); letter-spacing:.02em; }
+  .note { padding:6px 12px; font-size:12.5px; color:var(--muted); }
+  .note.wait { color:var(--muted); font-style:italic; }
+  .err { color:var(--warn); }
+  footer { position:fixed; bottom:0; left:0; right:0; background:var(--panel);
+           border-top:1px solid var(--line); padding:12px 16px; }
+  .composer { max-width:900px; margin:0 auto; display:flex; gap:8px; }
+  textarea { flex:1; resize:none; border:1px solid var(--line); border-radius:8px;
+             padding:9px 11px; background:var(--bg); min-height:44px; max-height:180px; }
+  dialog { border:1px solid var(--line); border-radius:12px; background:var(--panel);
+           color:var(--ink); max-width:560px; width:92%; padding:0;
+           max-height:86vh; overflow:hidden; }
+  dialog::backdrop { background:rgba(0,0,0,.4); }
+  .dlg-body { padding:18px 20px; max-height:86vh; overflow-y:auto; }
+  .dlg-head { display:flex; align-items:center; justify-content:space-between;
+              gap:12px; margin-bottom:14px; }
+  .dlg-head h3 { margin:0; }
+  /* A dialog with no visible way out is a trap: `showModal()` closes on Esc,
+     but nothing on screen says so, and reloading to escape loses the thread. */
+  .close { background:transparent; border:1px solid var(--line); color:var(--muted);
+           border-radius:8px; padding:4px 10px; line-height:1.4; font-size:18px; }
+  .close:hover { color:var(--ink); }
+  .row { display:grid; grid-template-columns:130px 1fr; gap:8px; align-items:center;
+         margin-bottom:8px; }
+  .conns li { display:flex; justify-content:space-between; align-items:center;
+              gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
+  ul { list-style:none; padding:0; margin:8px 0; }
+  small { color:var(--muted); }
+  .banner { background:var(--code); border:1px solid var(--line); border-radius:8px;
+            padding:10px 12px; font-size:13px; color:var(--muted); margin-bottom:16px; }
+</style>
+</head>
+<body>
+<header>
+  <button class="ghost" id="threadsBtn" title="Show or hide conversations"
+          aria-label="Toggle conversations">☰</button>
+  <h1>EntailDB</h1><span class="ver" id="ver" title="running build"></span>
+  <select id="conn"></select>
+  <span class="ver" id="activeModel" title="model answering for this connection"></span>
+  <span style="flex:1"></span>
+  <button class="ghost" id="profileBtn" title="Regenerate the data-facts document">Profile</button>
+  <button class="ghost" id="settingsBtn">Settings</button>
+</header>
+
+<div class="layout">
+<aside id="sidebar">
+  <button class="newThread" id="newThread">+ New conversation</button>
+  <ul class="threads" id="threadList"></ul>
+</aside>
+
+<main>
+  <div class="banner">
+    Every answer shows the SQL it ran and the rows it got back. Check the prose
+    against the data — that is what this tool is for.
+  </div>
+  <div id="thread"></div>
+</main>
+</div>
+
+<footer><div class="composer">
+  <textarea id="input" placeholder="Ask a question about the data…" rows="1"></textarea>
+  <button id="send">Send</button>
+</div></footer>
+
+<dialog id="settings"><div class="dlg-body">
+  <div class="dlg-head">
+    <h3>Settings</h3>
+    <button class="close" id="closeSettings" title="Close (Esc)"
+            aria-label="Close settings">&times;</button>
+  </div>
+  <h4 style="margin-top:0">Models</h4>
+  <ul class="conns" id="profileList"></ul>
+  <div class="row"><label>Name</label>
+    <input id="pLabel" placeholder="strong, private (local), cheap…"></div>
+  <div class="row"><label>Provider</label>
+    <select id="pKind"></select></div>
+  <div class="row"><label>Model</label>
+    <input id="pModel" placeholder="claude-sonnet-5"></div>
+  <div class="row"><label>Base URL</label>
+    <input id="pBase" placeholder="blank for the provider default"></div>
+  <div class="row"><label>API key</label>
+    <input id="pKey" type="password" placeholder="blank for a local model"></div>
+  <button id="addProfile">Add model</button>
+  <p><small><strong>OpenAI-compatible</strong> reaches Ollama, OpenRouter, vLLM,
+  a LiteLLM proxy, and OpenAI models up to gpt-4.1/gpt-4o. For a local Ollama
+  model use base URL <code>http://host.docker.internal:11434/v1</code> and leave
+  the key blank. <strong>OpenAI Responses</strong> is required for gpt-5 and
+  later, which do not accept tools over chat completions.</small></p>
+  <p><small>A model marked <strong>default</strong> answers for every connection
+  that has not pinned one of its own. Pin a database to a local model to keep its
+  schema and rows on this machine.</small></p>
+
+  <h4>Connections</h4>
+  <ul class="conns" id="connList"></ul>
+  <div class="row"><label>Label</label><input id="cLabel" placeholder="dvdrental"></div>
+  <div class="row"><label>Type</label>
+    <select id="cKind"></select></div>
+  <div class="row"><label>Host</label><input id="cHost" value="host.docker.internal"></div>
+  <div class="row"><label>Port</label><input id="cPort" type="number" value="5432"></div>
+  <div class="row"><label>Database</label><input id="cDb"></div>
+  <div class="row"><label>User</label><input id="cUser"></div>
+  <div class="row"><label>Password</label><input id="cPass" type="password"></div>
+  <button id="addConn">Add connection</button>
+  <p><small>Running inside a container, <code>localhost</code> means the container
+  itself. Use <code>host.docker.internal</code> to reach a database published on
+  your machine.</small></p>
+  <p><small><strong>No authentication.</strong> Bound to loopback only — do not
+  expose this port.</small></p>
+  <p style="margin-bottom:0"><button class="ghost" id="doneSettings">Done</button></p>
+</div></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const thread = $("#thread");
+/* A draft has no id and is not stored until its first message, so flipping
+   between connections leaves no trail of empty conversations. */
+let current = { id: null, connId: null, readOnly: false };
+
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+/* A small markdown renderer.
+
+   Models answer in markdown, and this pane used to set `textContent`, so a
+   table arrived as a wall of pipes directly above the same data rendered
+   properly from the tool result. No library, because the page has no build
+   step and loads nothing off-host.
+
+   Everything is escaped *first* and every transform runs over already-escaped
+   text, so no model output can inject markup. Link targets are additionally
+   restricted to http/https/relative — the server's allowlist has already
+   removed URLs no tool returned, and this stops a `javascript:` target
+   regardless of where it came from. */
+function mdInline(t) {
+  return t
+    .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+      /^(https?:\/\/|\/|#)/i.test(href)
+        ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : m);
+}
+
+function mdTableRow(line) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+}
+
+function md(src) {
+  const lines = esc(src).split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (/^```/.test(line)) {                       // fenced code
+      const buf = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i]); i++) buf.push(lines[i]);
+      i++;
+      out.push(`<pre><code>${buf.join("\n")}</code></pre>`);
+      continue;
+    }
+
+    // A table needs a delimiter row under the header, or it is just prose
+    // that happens to contain pipes.
+    if (/\|/.test(line) && i + 1 < lines.length &&
+        /^[\s|:-]+$/.test(lines[i + 1]) && /-/.test(lines[i + 1])) {
+      const head = mdTableRow(line);
+      i += 2;
+      const rows = [];
+      for (; i < lines.length && /\|/.test(lines[i]); i++) rows.push(mdTableRow(lines[i]));
+      out.push(`<table><thead><tr>${head.map(c => `<th>${mdInline(c)}</th>`).join("")}` +
+               `</tr></thead><tbody>${rows.map(r =>
+                 `<tr>${r.map(c => `<td>${mdInline(c)}</td>`).join("")}</tr>`).join("")}` +
+               `</tbody></table>`);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      const level = Math.min(heading[1].length, 3);
+      out.push(`<h${level}>${mdInline(heading[2])}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {         // list
+      const ordered = /^\s*\d+\./.test(line);
+      const items = [];
+      for (; i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i]); i++)
+        items.push(`<li>${mdInline(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ""))}</li>`);
+      const tag = ordered ? "ol" : "ul";
+      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      continue;
+    }
+
+    if (!line.trim()) { i++; continue; }
+
+    const para = [];
+    for (; i < lines.length && lines[i].trim() &&
+           !/^(```|#{1,6}\s|\s*([-*+]|\d+\.)\s)/.test(lines[i]); i++) para.push(lines[i]);
+    out.push(`<p>${mdInline(para.join("<br>"))}</p>`);
+  }
+  return out.join("");
+}
+
+function el(html) { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstChild; }
+
+function addMessage(who, cls) {
+  const node = el(`<div class="msg ${cls}"><div class="who">${who}</div><div class="body"></div></div>`);
+  thread.appendChild(node);
+  window.scrollTo(0, document.body.scrollHeight);
+  return node.querySelector(".body");
+}
+
+/* Which connection is selected, after the option list is rebuilt.
+
+   `loadSettings()` replaces the select's contents, which resets it to the
+   first option. Opening Settings therefore silently switched the active
+   database: a conversation about one database continued against another, and
+   the prior turns' tool results went along with it. */
+function selectedAfterReload(currentValue, connections) {
+  if (connections.some(c => c.id === currentValue)) return currentValue;
+  return connections.length ? connections[0].id : "";
+}
+
+/* Stream rendering.
+
+   Events are rendered in the order they arrive. One prose element created up
+   front was wrong twice over: it put the answer above the SQL that produced
+   it, and it glued a preamble emitted *before* a tool call onto the answer
+   emitted after — which is how "Here are the 2 stores:" appeared twice in a
+   row with nothing between them. A block now closes the current run, and the
+   next text delta starts a fresh one.
+
+   Taking `doc` as an argument rather than reaching for the global is what
+   makes this testable outside a browser, and it was worth it immediately: the
+   first version reset the accumulator inside the element-creating helper, and
+   `proseEl().innerHTML = md(runText)` evaluates its left side first — so the
+   opening delta was cleared before `md` ever saw it. Every answer silently
+   lost its first word. `endRun` owns the reset now. */
+function createStreamRenderer(body, doc) {
+  let run = null, runText = "", answer = "", notice = null;
+
+  const open = () => {
+    if (!run) {
+      run = doc.createElement("div");
+      run.className = "bubble md";
+      body.appendChild(run);
+    }
+    return run;
+  };
+
+  return {
+    /* Transport status: replaced by the next one and cleared the moment real
+       output arrives, so a finished answer never carries a stale "waiting"
+       line above it. */
+    notice(t) {
+      this.endRun();
+      if (!notice) { notice = doc.createElement("div"); body.appendChild(notice); }
+      notice.className = "note wait";
+      notice.textContent = t;
+    },
+    clearNotice() {
+      if (notice && notice.remove) notice.remove();
+      notice = null;
+    },
+    text(t) {
+      this.clearNotice();
+      answer += t; runText += t; open().innerHTML = md(runText);
+    },
+    endRun() { run = null; runText = ""; },
+    block(node) { this.clearNotice(); this.endRun(); body.appendChild(node); },
+    fail(msg) { open().innerHTML = `<span class="err">${esc(msg)}</span>`; },
+    get answer() { return answer; },
+  };
+}
+
+const ICON_COPY = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="9" y="9" width="13" height="13" rx="2"/>
+  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const ICON_DONE = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="20 6 9 17 4 12"/></svg>`;
+
+/* Tab-separated, because that is what a spreadsheet expects from the
+   clipboard. Values containing a tab, newline or quote are wrapped in double
+   quotes with internal quotes doubled — the convention Excel and Sheets parse
+   — otherwise one address field with a newline in it silently shifts every
+   column to its right.
+
+   NULL is copied as the literal `NULL`, matching what the table displays. An
+   empty cell would paste more tidily, but it would make a NULL
+   indistinguishable from an empty string, and quietly changing values on the
+   way to the clipboard is the same class of error this project exists to
+   prevent. */
+function toTSV(columns, rows) {
+  const cell = v => {
+    const t = v === null ? "NULL" : String(v);
+    return /[\t\n\r"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  return [columns.map(cell).join("\t"),
+          ...rows.map(r => r.map(cell).join("\t"))].join("\n");
+}
+
+/* `navigator.clipboard` needs a secure context; http://127.0.0.1 counts as
+   one, so this is the normal path here. The textarea fallback covers a
+   deployment reached by some other hostname over plain http, where the
+   clipboard API is simply absent. */
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy") ? resolve() : reject(new Error("copy refused")); }
+    catch (err) { reject(err); }
+    finally { ta.remove(); }
+  });
+}
+
+/* The button lives inside the <summary>, so both default behaviours have to be
+   suppressed or copying would also collapse the panel being copied from. */
+function addCopy(box, getText, title) {
+  const btn = el(`<button class="copy" type="button"></button>`);
+  btn.innerHTML = ICON_COPY;
+  btn.title = title;
+  btn.setAttribute("aria-label", title);
+  btn.onclick = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    copyText(getText()).then(() => {
+      btn.innerHTML = ICON_DONE;
+      btn.classList.add("done");
+      setTimeout(() => { btn.innerHTML = ICON_COPY; btn.classList.remove("done"); }, 1400);
+    }).catch(() => {
+      btn.title = "Copy failed";
+      setTimeout(() => { btn.title = title; }, 1400);
+    });
+  };
+  box.querySelector("summary").appendChild(btn);
+  return btn;
+}
+
+/* Results render as a real table, not a JSON blob. The point of showing the
+   tool result is that a person can actually check the answer against it. */
+function renderResult(body, raw) {
+  let data; try { data = JSON.parse(raw); } catch { data = null; }
+  const box = el(`<details class="trace"><summary>result</summary></details>`);
+  if (data && data.error) {
+    box.querySelector("summary").textContent = "query failed";
+    box.appendChild(el(`<div class="note err">${esc(data.error)}</div>`));
+    addCopy(box, () => data.error, "Copy the error message");
+  } else if (data && data.columns) {
+    const n = data.rows.length;
+    box.querySelector("summary").textContent =
+      data.total_rows_matched
+        ? `${n} of ${data.total_rows_matched} rows`
+        : `${n} row${n === 1 ? "" : "s"}`;
+    const head = data.columns.map(c => `<th>${esc(c)}</th>`).join("");
+    const rows = data.rows.map(r =>
+      `<tr>${r.map(v => `<td>${esc(v === null ? "NULL" : v)}</td>`).join("")}</tr>`).join("");
+    box.appendChild(el(`<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`));
+    if (data.note) box.appendChild(el(`<div class="note">${esc(data.note)}</div>`));
+    // The tooltip states the preview boundary rather than a note being pasted
+    // into the clipboard, which would corrupt the spreadsheet it lands in.
+    addCopy(box, () => toTSV(data.columns, data.rows),
+      data.total_rows_matched && data.total_rows_matched > n
+        ? `Copy these ${n} rows for a spreadsheet — preview only, ${data.total_rows_matched} matched`
+        : `Copy ${n} row${n === 1 ? "" : "s"} for a spreadsheet`);
+    box.open = true;
+  } else {
+    box.appendChild(el(`<pre>${esc(raw)}</pre>`));
+    addCopy(box, () => raw, "Copy the raw result");
+  }
+  body.appendChild(box);
+}
+
+/* One event renderer for both a live stream and a replayed transcript.
+
+   A restored conversation has to look exactly like a live one — same SQL
+   panels, same tables, same copy buttons — and the only way to guarantee that
+   is for both paths to run the same code. Stored events carry `kind`; streamed
+   events carry `type`; they are otherwise the same shape, which is why the
+   server stores them in the shape it streams. */
+function applyEvent(body, stream, ev) {
+  const kind = ev.kind || ev.type;
+  if (kind === "text" || kind === "answer") {
+    if (ev.text) stream.text(ev.text);
+  } else if (kind === "tool_call") {
+    const box = el(
+      `<details class="trace" open><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
+    addCopy(box, () => ev.sql, "Copy this SQL");
+    stream.block(box);
+  } else if (kind === "notice") {
+    stream.notice(ev.text);
+  } else if (kind === "tool_result") {
+    stream.clearNotice();
+    stream.endRun();
+    renderResult(body, ev.result);
+  } else if (kind === "stripped_link") {
+    stream.block(el(`<div class="note err">A link to <code>${esc(ev.text)}</code> was removed: no tool returned that URL.</div>`));
+  } else if (kind === "error") {
+    stream.block(el(`<div class="note err">${esc(ev.text)}</div>`));
+  }
+}
+
+function replay(events) {
+  let body = null, stream = null;
+  for (const ev of events) {
+    if (ev.kind === "user") {
+      addMessage("you", "user").textContent = ev.text;
+      body = null;                       // the next assistant event opens a turn
+      continue;
+    }
+    if (!body) { body = addMessage("assistant", "bot"); stream = createStreamRenderer(body, document); }
+    applyEvent(body, stream, ev);
+  }
+}
+
+async function send() {
+  const text = $("#input").value.trim();
+  const connId = $("#conn").value;
+  if (!text || !connId || current.readOnly) return;
+  $("#input").value = ""; $("#send").disabled = true;
+
+  // A draft is stored at its first message and not before, so switching
+  // connections to look at something never leaves an empty conversation.
+  if (!current.id) {
+    try {
+      const t = await api("/api/threads", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connection_id: connId }),
+      });
+      current = { id: t.id, connId, readOnly: false };
+    } catch (err) {
+      const b = addMessage("assistant", "bot");
+      createStreamRenderer(b, document).fail(String(err.message || err));
+      $("#send").disabled = false;
+      return;
+    }
+  }
+
+  addMessage("you", "user").textContent = text;
+  const body = addMessage("assistant", "bot");
+  const stream = createStreamRenderer(body, document);
+
+  // The request carries a thread and a question. History and connection come
+  // from the stored thread, so one database's results cannot be replayed as
+  // context for a question about another.
+  const res = await fetch("/api/chat", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ thread_id: current.id, message: text }),
+  });
+  if (!res.ok) {
+    stream.fail((await res.json().catch(() => ({}))).detail || res.statusText);
+    $("#send").disabled = false;
+    await refreshThreads();
+    return;
+  }
+
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split("\n\n"); buf = parts.pop();
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue;
+      applyEvent(body, stream, JSON.parse(part.slice(6)));
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+  }
+  await refreshThreads();
+  $("#send").disabled = false; $("#input").focus();
+}
+
+async function loadSettings() {
+  const s = await (await fetch("/api/settings")).json();
+  const keep = selectedAfterReload($("#conn").value, s.connections);
+  $("#conn").innerHTML = s.connections.map(c =>
+    `<option value="${c.id}">${esc(c.label)} — ${esc(c.database)}</option>`).join("")
+    || `<option value="">no connections — open Settings</option>`;
+  if (keep) $("#conn").value = keep;
+  const profiles = s.profiles || [];
+  $("#connList").innerHTML = "";
+  for (const c of s.connections) {
+    const li = el(`<li><span></span><span></span></li>`);
+    li.children[0].innerHTML =
+      `${esc(c.label)} <small>${esc(c.kind)} · ${esc(c.host)}:${c.port}/` +
+      `${esc(c.database)}${c.facts ? " · profiled" : ""}</small>`;
+
+    // Which model answers for this database, changeable in place. Pinning is
+    // how a sensitive database is kept on a local model.
+    const pick = el(`<select title="Model for this database"></select>`);
+    pick.innerHTML = `<option value="">use default</option>` + profiles.map(p =>
+      `<option value="${p.id}">${esc(p.label)}</option>`).join("");
+    pick.value = c.model_profile_id || "";
+    pick.onchange = async () => {
+      await api(`/api/connections/${c.id}/profile`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_profile_id: pick.value }),
+      });
+      showActiveModel();
+    };
+    li.children[0].appendChild(document.createElement("br"));
+    li.children[0].appendChild(pick);
+
+    li.children[1].innerHTML =
+      `<button class="ghost" data-test="${c.id}">Test</button>
+       <button class="ghost" data-del="${c.id}">Delete</button>`;
+    $("#connList").appendChild(li);
+  }
+  window._settings = s;
+  showActiveModel();
+  renderProfiles(s.profiles || [], s.default_profile_id || "");
+}
+
+$("#send").onclick = send;
+$("#input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+/* ── conversations ─────────────────────────────────────────────────────── */
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))).detail;
+    throw new Error(detail || res.statusText);
+  }
+  return res.json();
+}
+
+/* Dates in the sidebar are for recognising a conversation, not for precision:
+   the time today, the weekday this week, the date beyond that. */
+function whenLabel(iso, now) {
+  const then = new Date(iso);
+  if (isNaN(then)) return "";
+  const today = now || new Date();
+  const days = Math.floor((today - then) / 86400000);
+  if (today.toDateString() === then.toDateString())
+    return then.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (days < 7) return then.toLocaleDateString([], { weekday: "short" });
+  return then.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+let threadCache = [];
+
+function renderThreads() {
+  const ul = $("#threadList");
+  ul.innerHTML = "";
+  if (!threadCache.length) {
+    ul.appendChild(el(`<li class="empty">No conversations yet.</li>`));
+    return;
+  }
+  for (const t of threadCache) {
+    const li = el(`<li${t.id === current.id ? ' class="on"' : ""}></li>`);
+    const a = el(`<a><span class="t"></span><span class="w"></span></a>`);
+    a.querySelector(".t").textContent = t.title;
+    a.querySelector(".w").textContent =
+      `${whenLabel(t.updated_at)} · ${t.turns} turn${t.turns === 1 ? "" : "s"}`;
+    a.title = t.title + " — double-click to rename";
+    a.onclick = () => openThread(t.id);
+    a.ondblclick = async e => {
+      e.preventDefault();
+      const title = prompt("Rename conversation", t.title);
+      if (title === null) return;
+      await api(`/api/threads/${t.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      await refreshThreads();
+    };
+    const del = el(`<button title="Delete this conversation" aria-label="Delete conversation">×</button>`);
+    del.onclick = async e => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${t.title}"? This cannot be undone.`)) return;
+      await api(`/api/threads/${t.id}`, { method: "DELETE" });
+      if (current.id === t.id) startDraft();
+      await refreshThreads();
+    };
+    li.appendChild(a); li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+async function refreshThreads() {
+  const connId = $("#conn").value;
+  threadCache = connId
+    ? await api(`/api/threads?connection_id=${encodeURIComponent(connId)}`).catch(() => [])
+    : [];
+  renderThreads();
+  return threadCache;
+}
+
+function startDraft() {
+  current = { id: null, connId: $("#conn").value, readOnly: false };
+  $("#thread").innerHTML = "";
+  $("#input").disabled = false;
+  $("#send").disabled = false;
+  renderThreads();
+}
+
+async function openThread(id) {
+  const t = await api(`/api/threads/${id}`);
+  current = { id: t.id, connId: t.connection_id, readOnly: !!t.connection_missing };
+  $("#thread").innerHTML = "";
+  replay(t.events);
+  if (current.readOnly) {
+    $("#thread").appendChild(el(`<div class="note err">The connection this conversation used has been removed, so it cannot be continued. The transcript is kept.</div>`));
+  } else if ($("#conn").value !== t.connection_id) {
+    $("#conn").value = t.connection_id;
+  }
+  $("#input").disabled = current.readOnly;
+  $("#send").disabled = current.readOnly;
+  renderThreads();
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+/* Switching database switches conversation. A conversation belongs to one
+   database, so the most recent one for that connection is what you want back;
+   a draft only when there is nothing to return to. */
+async function openMostRecentOrDraft() {
+  const list = await refreshThreads();
+  if (list.length) await openThread(list[0].id);
+  else startDraft();
+}
+
+$("#conn").onchange = async () => {
+  localStorage.setItem("lastConnection", $("#conn").value);
+  showActiveModel();
+  await openMostRecentOrDraft();
+};
+
+/* The header names the model that will answer for the selected connection.
+   "Which model produced this?" should never be a guess — especially once one
+   database is pinned to a local model and another is not. */
+function showActiveModel() {
+  const s = window._settings;
+  const badge = $("#activeModel");
+  if (!s || !badge) return;
+  const conn = (s.connections || []).find(c => c.id === $("#conn").value);
+  const profiles = s.profiles || [];
+  const wanted = (conn && conn.model_profile_id) || s.default_profile_id;
+  const profile = profiles.find(p => p.id === wanted) || profiles[0];
+  badge.textContent = profile ? profile.label : "no model configured";
+  badge.title = profile
+    ? `${profile.model}${profile.base_url ? " · " + profile.base_url : ""}` +
+      `${conn && conn.model_profile_id ? " · pinned to this database" : " · default"}`
+    : "Add a model in Settings";
+}
+
+$("#newThread").onclick = () => startDraft();
+
+$("#threadsBtn").onclick = () => {
+  const aside = $("#sidebar");
+  aside.hidden = !aside.hidden;
+  localStorage.setItem("sidebarHidden", aside.hidden ? "1" : "");
+};
+
+$("#settingsBtn").onclick = () => { loadSettings(); $("#settings").showModal(); };
+
+/* Three ways out, none of which discard the conversation: the × , the Done
+   button, and a click on the backdrop. Esc already worked — `showModal()`
+   gives it for free — but nothing on screen advertised it, so the only
+   discoverable escape was a reload, which cleared the thread. */
+const closeSettings = () => $("#settings").close();
+$("#closeSettings").onclick = closeSettings;
+$("#doneSettings").onclick = closeSettings;
+$("#settings").addEventListener("click", e => {
+  // The backdrop is the dialog element itself; anything inside is a child.
+  if (e.target === $("#settings")) closeSettings();
+});
+/* ── models ────────────────────────────────────────────────────────────── */
+
+function renderProfiles(profiles, defaultId) {
+  const ul = $("#profileList");
+  ul.innerHTML = "";
+  if (!profiles.length) {
+    ul.appendChild(el(`<li class="empty">No models yet — add one below.</li>`));
+  }
+  for (const p of profiles) {
+    const isDefault = p.id === defaultId;
+    const where = p.base_url || (p.kind === "anthropic" ? "api.anthropic.com" : "");
+    const li = el(`<li><span></span><span></span></li>`);
+    li.children[0].innerHTML =
+      `<strong>${esc(p.label)}</strong>${isDefault ? " <small>· default</small>" : ""}` +
+      `<br><small>${esc(p.model)} · ${esc(where)}${p.local ? " · local, no key" : ""}</small>`;
+    if (!isDefault) {
+      const mk = el(`<button class="ghost">Make default</button>`);
+      mk.onclick = async () => {
+        await api(`/api/profiles/${p.id}/default`, { method: "PUT" });
+        loadSettings();
+      };
+      li.children[1].appendChild(mk);
+    }
+    const del = el(`<button class="ghost">Delete</button>`);
+    del.onclick = async () => {
+      if (!confirm(`Delete the model "${p.label}"?`)) return;
+      await api(`/api/profiles/${p.id}`, { method: "DELETE" });
+      loadSettings();
+    };
+    li.children[1].appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+$("#addProfile").onclick = async () => {
+  const body = {
+    label: $("#pLabel").value, kind: $("#pKind").value,
+    model: $("#pModel").value, base_url: $("#pBase").value,
+    api_key: $("#pKey").value,
+  };
+  if (!body.model) { alert("A model name is required."); return; }
+  try {
+    await api("/api/profiles", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) { alert(String(err.message || err)); return; }
+  ["#pLabel", "#pModel", "#pBase", "#pKey"].forEach(id => ($(id).value = ""));
+  loadSettings();
+};
+
+$("#pKind").onchange = e => {
+  // A nudge, not a constraint: the placeholder shows what this provider
+  // usually wants so the fields are not a guessing game.
+  const hint = {
+    anthropic: ["claude-sonnet-5", "blank for the provider default"],
+    openai: ["qwen3.6 / gpt-4.1", "http://host.docker.internal:11434/v1"],
+    openai_responses: ["gpt-5.6-terra", "blank for the provider default"],
+  }[e.target.value] || ["", ""];
+  $("#pModel").placeholder = hint[0];
+  $("#pBase").placeholder = hint[1];
+};
+$("#addConn").onclick = async () => {
+  await fetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: $("#cLabel").value, kind: $("#cKind").value,
+      host: $("#cHost").value, port: +$("#cPort").value, database: $("#cDb").value,
+      user: $("#cUser").value, password: $("#cPass").value }) });
+  ["#cLabel","#cDb","#cUser","#cPass"].forEach(id => $(id).value = "");
+  loadSettings();
+};
+/* Both pickers are built from what is actually installed, so a driver or an
+   adapter dropped into its package appears here with nothing edited. The
+   previous hard-coded lists had already gone stale: SQLite shipped three
+   versions ago and never showed up. */
+let KINDS = { databases: [], providers: [] };
+
+async function loadKinds() {
+  KINDS = await api("/api/kinds").catch(() => KINDS);
+  $("#cKind").innerHTML = KINDS.databases.map(d =>
+    `<option value="${d.kind}">${esc(d.label)}</option>`).join("");
+  $("#pKind").innerHTML = KINDS.providers.map(p =>
+    `<option value="${p.kind}">${esc(p.label)}</option>`).join("");
+  applyDatabaseKind();
+  applyProviderKind();
+}
+
+function applyDatabaseKind() {
+  const d = KINDS.databases.find(x => x.kind === $("#cKind").value);
+  if (!d) return;
+  if (d.default_port) $("#cPort").value = d.default_port;
+  // A file-backed database has no host, port or credentials; showing four
+  // boxes that do nothing invites filling them in.
+  for (const id of ["#cHost", "#cPort", "#cUser", "#cPass"]) {
+    $(id).closest(".row").style.display = d.wants_credentials ? "" : "none";
+  }
+  $("#cDb").previousElementSibling.textContent =
+    d.wants_credentials ? "Database" : "File path";
+}
+
+function applyProviderKind() {
+  const p = KINDS.providers.find(x => x.kind === $("#pKind").value);
+  if (!p) return;
+  $("#pModel").placeholder = p.model_hint || "";
+  $("#pBase").placeholder = p.base_url_hint || "";
+  $("#pBase").closest(".row").style.display = p.wants_base_url ? "" : "none";
+  $("#pKey").closest(".row").style.display = p.wants_api_key ? "" : "none";
+}
+
+$("#cKind").onchange = applyDatabaseKind;
+$("#connList").onclick = async e => {
+  const del = e.target.dataset.del, test = e.target.dataset.test;
+  if (del) { await fetch(`/api/connections/${del}`, { method: "DELETE" }); loadSettings(); }
+  if (test) {
+    e.target.textContent = "…";
+    const r = await (await fetch(`/api/connections/${test}/test`, { method: "POST" })).json();
+    e.target.textContent = r.ok ? "OK" : "failed";
+    if (!r.ok) alert(r.error);
+  }
+};
+$("#profileBtn").onclick = async () => {
+  const id = $("#conn").value; if (!id) return;
+  $("#profileBtn").textContent = "Profiling…"; $("#profileBtn").disabled = true;
+  try {
+    const r = await (await fetch(`/api/connections/${id}/profile`, { method: "POST" })).json();
+    const body = addMessage("data facts", "bot");
+    const box = el(`<details class="trace" open><summary>${r.facts} facts generated</summary><pre>${esc(r.document)}</pre></details>`);
+    addCopy(box, () => r.document, "Copy the facts document");
+    body.appendChild(box);
+  } finally { $("#profileBtn").textContent = "Profile"; $("#profileBtn").disabled = false; }
+};
+/* Shown because a stale tab is indistinguishable from a broken fix: a change
+   verified server-side appeared not to work simply because the page had never
+   been reloaded. The running build is now on screen. */
+fetch("/api/version").then(r => r.json())
+  .then(v => { $("#ver").textContent = "v" + v.version; })
+  .catch(() => {});
+
+/* The sidebar starts collapsed on a narrow window, where a 236px column would
+   take most of the screen; the choice is then remembered. */
+// `innerWidth` reads 0 in some embedded/headless contexts; treating that as
+// "narrow" hides the sidebar on a full-size window.
+$("#sidebar").hidden = localStorage.getItem("sidebarHidden")
+  ? true
+  : (window.innerWidth > 0 && window.innerWidth < 800);
+
+async function boot() {
+  await loadKinds();
+  await loadSettings();
+  const saved = localStorage.getItem("lastConnection");
+  if (saved && [...$("#conn").options].some(o => o.value === saved)) {
+    $("#conn").value = saved;
+  }
+  await openMostRecentOrDraft();
+}
+
+boot();
+</script>
+</body>
+</html>

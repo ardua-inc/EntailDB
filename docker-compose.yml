@@ -1,0 +1,31 @@
+# Stage 1: loopback-only, no authentication. Do not change the published
+# address to 0.0.0.0 — the app has no login, and the encrypted settings store
+# protects the file, not the endpoint. See DESIGN.md § Configuration and
+# credentials.
+# Set explicitly so containers are named for the product rather than for
+# whatever the checkout directory happens to be called.
+name: entaildb
+
+services:
+  app:
+    build: .
+    image: entaildb:dev
+    ports:
+      - "127.0.0.1:8080:8000"
+    volumes:
+      - fidelity-appdata:/data
+    extra_hosts:
+      # Databases are reached exactly as any desktop client reaches them —
+      # by host and published port. Inside a container `localhost` is the
+      # container, so the host is `host.docker.internal`; colima does not
+      # provide that name by default, hence this mapping.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  fidelity-appdata:
+    # Pinned, so the volume never depends on the compose project name — which
+    # in turn depends on the checkout directory. Renaming the project once
+    # silently created a fresh empty volume and would have looked like every
+    # connection, key and conversation had vanished.
+    name: entaildb-appdata

@@ -1,0 +1,25 @@
+# Shared ancillary responses, referenced by name via `common_responses:`.
+#
+# Not a case file — `load_cases` skips files beginning with an underscore.
+#
+# Only genuinely universal responses belong here. The `SELECT 1` sanity check
+# is byte-identical for every SQL case, and seven copies would drift. Schema
+# payloads deliberately stay in the case files: each case is about a different
+# table, and what the schema does and does not contain is part of what the case
+# asserts — most sharply in `nonexistent-schema`, where the absent column is
+# the entire point.
+#
+# These exist because the first measured run (2026-08-09) showed the fixtures
+# were detectable. Returning the same payload to a schema lookup, a data query
+# and `SELECT 1` told the model its tools were broken, and 45–60% of answers
+# said so outright. See runs/AUDIT-baseline-instructed.md.
+
+responses:
+  sanity:
+    # A connectivity check. Models reach for this once they suspect the tool,
+    # and answering it correctly removes the strongest single tell.
+    - match: '^\s*SELECT\s+1\s*;?\s*$'
+      kind: table
+      columns: ["?column?"]
+      rows:
+        - [1]
