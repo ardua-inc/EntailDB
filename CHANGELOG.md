@@ -2,6 +2,33 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.24] - 2026-08-12
+
+`CONTRIBUTING.md`, ahead of making the repository public.
+
+Written against this project's actual norms rather than a template, because the
+norms are unusual enough that a reasonable contributor would break them in good
+faith and learn it from a failing test:
+
+- the deterministic graders are a **screen, not a metric**, and a rate quoted
+  straight from one has been wrong every time it mattered;
+- **sixteen measurement defects, every one of which inflated the fabrication
+  rate**, which is why the audit step is mandatory rather than diligent;
+- a change that makes the screen flag *less* is the dangerous direction, and
+  must record what it excused;
+- a grader change can be re-scored against stored runs, a fixture change cannot
+  — it alters what the model saw;
+- guards must not be disableable by a flag, enforced over the AST;
+- no performance claim the ablation table does not support.
+
+Also documents the plugin path, which is the most likely useful contribution
+and is one file, and points at `tests/test_plugins.py` as the contract.
+
+Every factual claim in it was checked against the repository rather than
+asserted: the Python floor, the `[dev]` extra, the documented install command,
+the named files and symbols, and the claim that the suite runs offline in
+seconds (6.0s, no key, no database, no network).
+
 ## [0.1.23] - 2026-08-12
 
 Squashed to a single commit for publication.

@@ -43,6 +43,7 @@ commodity; the fidelity layer is the asset.
 | `DESIGN.md` | the spec — architecture, pillars, non-goals, security posture |
 | `FAILURES.md` | the evidence base: 8 real production failures |
 | `MEASUREMENT.md` | how claims get tested, and what testing has shown |
+| `CONTRIBUTING.md` | how to work on this, and the norms the tests enforce |
 | `LICENSE` | MIT |
 
 Built so far: the link allowlist (a streaming filter that strips URLs a tool
