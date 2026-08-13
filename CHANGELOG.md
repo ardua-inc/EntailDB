@@ -2,6 +2,34 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.31] - 2026-08-12
+
+A "What it's for" section, from first outside feedback.
+
+Joe Wolff, reading the repository cold: *"I'm not immediately seeing why you
+need it, or where/how you would use it."* Fair, and a gap the author of a README
+cannot see. It opened with the thesis and the measurement — what the project
+*believes* — and never said what problem a reader has or what using it looks
+like.
+
+The new section leads with the situation rather than the philosophy: you have a
+database, not everyone can write SQL, a language model closes that gap right up
+until the last step, and then you get a confident paragraph with no way to tell
+whether its numbers came from your database or from the model.
+
+Then it shows a turn instead of describing one — the AdventureWorks question
+*"how many of those people live in Utah?"*, its five-line join, and the answer
+`3`. The point being that the answer is the short part: "live in" had to be
+interpreted, and only the query tells you it meant *has a Utah address on file*
+rather than *ordered something to Utah*. Fourteen addresses in that database are
+in Utah and three belong to people, so the two readings differ by more than 4×.
+Both figures were re-run against the live database before being written down.
+
+It also says plainly where it is used today — one person, one machine, no login
+— and, in four bullets, when not to use it at all: you already know SQL, you
+need governed metrics, you want dashboards, or nobody would act on a wrong
+number.
+
 ## [0.1.30] - 2026-08-12
 
 The guard ablation on Claude, and the shipping decision it settles.

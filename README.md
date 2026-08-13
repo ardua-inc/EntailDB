@@ -14,6 +14,67 @@ rows the tools actually returned.
 application runs locally.** Not published, and not fit to expose — see
 *Security* below.
 
+## What it's for
+
+You have a database. People who need answers from it can't all write SQL, and
+pointing a language model at it solves that — right up to the last step. You get
+back a confident paragraph, and no way to tell whether the numbers in it came
+out of your database or out of the model.
+
+That gap is not theoretical. The incidents this project was built from include a
+model that reported a session count after every query had failed, a
+twenty-row product table conjured from a single number, and a statistic that was
+accurate the year somebody measured it and was still being quoted as current
+eighteen months later. Each answer looked exactly like a good one.
+
+EntailDB is a chat window over your databases that **keeps the working
+alongside every answer**. Ask a question; get the SQL it ran, the rows that came
+back, and the prose — so the answer is checkable in the two seconds it takes to
+glance at the query.
+
+**A real turn**, against the AdventureWorks sample database:
+
+> **You:** how many of those people live in Utah?
+>
+> ```sql
+> SELECT COUNT(DISTINCT p.BusinessEntityID)
+> FROM Person.Person p
+> JOIN Person.BusinessEntityAddress bea ON p.BusinessEntityID = bea.BusinessEntityID
+> JOIN Person.Address a ON bea.AddressID = a.AddressID
+> JOIN Person.StateProvince sp ON a.StateProvinceID = sp.StateProvinceID
+> WHERE sp.Name = 'Utah'
+> ```
+> → `3`
+>
+> **EntailDB:** 3 people in the Person table have an address in Utah.
+
+The answer is short; the value is the query above it. "Live in" had to be
+interpreted, and seeing the join path is how you find out it means *has a Utah
+address on file* — not *ordered something to Utah*, which is a different
+question with a different answer. Fourteen addresses in that database are in
+Utah; only three belong to people. No amount of confidence in the prose would
+have told you which question got answered.
+
+### Where you would use it
+
+Today: **on your own machine**, against your own databases, by one person. It
+binds to localhost and has no login (see *Security*), so it suits a developer,
+analyst or DBA who wants to interrogate an unfamiliar schema and be able to
+check the answers. Point it at a read-only replica and it is a fast way to learn
+a database you have inherited.
+
+Not yet: a shared internal service. That needs authentication, which is the next
+substantial piece of work rather than a configuration flag.
+
+### When you would not
+
+- **You already know SQL and the question is simple.** Write the query.
+- **You need governed metrics** — one agreed definition of "active customer"
+  across a company. That is a semantic layer, and dbt or WrenAI do it properly.
+- **You want dashboards.** This answers questions; it does not draw charts.
+- **The answers do not need checking.** If nobody would act on a wrong number,
+  the machinery here is overhead.
+
 ## The idea
 
 Every open-source natural-language-to-SQL project optimises whether the

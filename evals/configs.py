@@ -86,6 +86,17 @@ def _baseline_guarded(client: Any, model: str, max_rounds: int) -> Runner:
     )
 
 
+def _baseline_claim_guard(client: Any, model: str, max_rounds: int) -> Runner:
+    from .runners.claim_guarded import ClaimGuardRunner
+
+    return ClaimGuardRunner(
+        client=client,
+        system_prompt=load_prompt("neutral"),
+        model=model,
+        max_rounds=max_rounds,
+    )
+
+
 def _two_phase(client: Any, model: str, max_rounds: int) -> Runner:
     return TwoPhaseRunner(
         client,
@@ -114,6 +125,7 @@ CONFIGS: dict[str, RunnerFactory] = {
     "baseline": _baseline,
     "baseline-instructed": _baseline_instructed,
     "baseline-guarded": _baseline_guarded,
+    "baseline-claim-guard": _baseline_claim_guard,
     "baseline-domain": _baseline_domain,
     "baseline-profiled": _baseline_profiled,
     "two-phase": _two_phase,
