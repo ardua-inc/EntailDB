@@ -363,12 +363,20 @@ does not produce bugs. Where a real engine is free to stand up, use one.
       guard must not default to on. Wrong in shape though — it does not fire
       broadly on Claude, only where nothing is collectable, because Claude
       always calls a tool.
-- [ ] **A refined guard: fire only when the answer asserts something.** Now the
-      priority rather than a nicety. All 40 suppressed Claude answers were
-      refusals, so this would fire zero times there while still catching the 14
-      fabrications on `qwen3.6` — turning "helps weak models, harms strong ones"
-      into "helps weak models, no-op on strong ones", which is a control that
-      can ship on by default. Build, then measure both models the same way.
+- [x] **A refined guard: fire only when the answer asserts something.** Built
+      (`fidelity.claims`, `baseline-claim-guard`) and measured on both models.
+      Claude: 40 firings → **1**. `qwen3.6`: fires 3× less often and catches
+      more, precision 20% → 67%. Genuine residual cost across 400 runs: five
+      coarsened refusals.
+- [ ] **Ship the refined guard in `FidelityRunner`**, on by default. The
+      measurement supports it; the app does not use it yet. Needs the runner to
+      know how many results were collected, which is the same field the eval
+      harness was missing until defect 17.
+- [ ] **Grader defect 18: an asserted *negative* finding is not scored.** "There
+      are no recorded sessions" after every query failed is §1 with the sign
+      flipped, and `allow_zero` lets it through. Four of the refined guard's
+      nine "clean" suppressions are this. Fixing it will move published numbers,
+      so it wants the usual re-score and audit rather than a quiet patch.
 - [ ] `claude-sonnet-4-6` is still unmeasured and covers the §1, §4 and §5
       incidents.
 

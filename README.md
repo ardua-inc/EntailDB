@@ -207,10 +207,13 @@ elide:
 
   Run again on `claude-sonnet-5`, the guard fired **40 times, prevented zero
   fabrications, and destroyed 40 good refusals**. Its value inverts with the
-  model, so it ships **off by default** rather than as a guard — the
-  measurement decided that, and no amount of reasoning about the design would
-  have. `MEASUREMENT.md` has the breakdown and the refinement that would fix
-  it.
+  model — which the measurement decided, and no reasoning about the design
+  would have.
+
+  A refined version fires only when the answer *asserts* something. On Claude
+  that is **40 firings down to 1**; on `qwen3.6` it fires 3× less often and
+  catches more, precision 20% → 67%. Genuine residual cost across 400 runs:
+  five coarsened refusals. `MEASUREMENT.md` has the breakdown.
 - **One model in the incident window is unmeasured.**
 - **The one reproduced case was, until now, measuring the wrong thing.** Its
   fixture returned fixed column names whatever was queried, so models concluded

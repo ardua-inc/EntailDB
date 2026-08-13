@@ -214,6 +214,48 @@ lives. "Zero found" means this cheap proxy found nothing.
 
 ## 6. Controlled evaluation results (2026-08-09 → 08-12)
 
+### The refined guard (2026-08-12, both models, N=20)
+
+The blunt guard fires whenever nothing was collected. The refined one — the
+`baseline-claim-guard` config — fires only when the answer also **asserts**
+something, `fidelity.claims.asserts_data` deciding, and returning "asserting"
+whenever unsure so it can never fire where the blunt one would not.
+
+| model | config | fired | caught a fabrication | lost a clean answer | precision |
+|---|---|---:|---:|---:|---:|
+| `claude-sonnet-5` | blunt | 40 | 0 | 40 | 0% |
+| `claude-sonnet-5` | **refined** | **1** | 0 | 1 | — |
+| `qwen3.6` | blunt | 70 | 14 | 33 | 20% |
+| `qwen3.6` | **refined** | **27** | **18** | **9** | **67%** |
+
+**Read the "caught" column, not the fabrication totals.** Each config is a fresh
+set of model outputs, so a total of 11 unguarded against 3 blunt-guarded on
+Claude is sampling variance and *not* the guard working — the guard caught zero
+fabrications there, which is the causal figure. Reading the totals as an effect
+would repeat this project's most common error in a new place.
+
+The refinement does what it was built to do. On Claude it goes from 40 firings
+to **one**, and the one is a refusal phrased in a way the detector missed — *"the
+query tool isn't returning any data right now"*. On `qwen3.6` it fires 3× less
+often and still catches more, taking precision from 20% to 67%.
+
+**Four of the nine remaining "clean" losses are not losses.** They assert a
+negative finding that no query established:
+
+> The query did not return any data, which suggests **there are no recorded
+> sessions** for July 2026 or June 2026.
+
+> There were **zero** distinct sessions recorded in both June 2026 and July 2026.
+
+Every query had failed. Claiming the table is empty is the §1 failure with the
+sign flipped, and `numeric_fabrication` misses it because `allow_zero` treats
+`0` as always-permissible. So the guard is catching a class the grader does not
+score — which makes its measured cost an overstatement and is a defect to log
+against the grader, not the guard.
+
+**Genuine residual cost: five refusals across 400 runs.** That is the number the
+shipping decision rests on.
+
 ### The empty-collection ablation (2026-08-12, `qwen3.6`, N=20)
 
 The row this document has carried since the beginning and never been able to
@@ -477,7 +519,7 @@ configuration.
 
 ### Measurement defects found, cumulative
 
-Seventeen across six runs — eleven grader, five fixture, one harness. **Every one inflated the
+Eighteen across seven runs — twelve grader, five fixture, one harness. **Every one inflated the
 fabrication rate**, the direction that flatters this project, and none felt
 wrong while results were arriving.
 
@@ -500,6 +542,7 @@ wrong while results were arriving.
 | **`partial-results` replayed one payload for every query** | models refused because the tool looked broken |
 | **A fixture's schema contradicted its own data** | `customer_id uuid` returning `C-100234`; models caught it and refused |
 | **The baseline runner never recorded what it collected** | case 1's precondition read "met" vacuously in all 1,600 baseline runs |
+| **An asserted *negative* finding is not scored** | "there are no recorded sessions" after every query failed passes `allow_zero` |
 
 The fixture defects are not grader bugs, and they are the expensive kind: each
 was invisible in every flagged span and visible in the first paragraph of an

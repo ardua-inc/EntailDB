@@ -2,6 +2,40 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.32] - 2026-08-12
+
+The refined guard, built and measured on both models.
+
+`fidelity.claims.asserts_data` decides whether an answer states something or
+declines to, and `baseline-claim-guard` fires only when nothing was collected
+**and** the answer asserts. The predicate returns "asserting" whenever unsure,
+so the refined guard can never fire where the blunt one would not.
+
+| model | config | fired | caught | clean lost | precision |
+|---|---|---:|---:|---:|---:|
+| `claude-sonnet-5` | blunt | 40 | 0 | 40 | 0% |
+| `claude-sonnet-5` | **refined** | **1** | 0 | 1 | — |
+| `qwen3.6` | blunt | 70 | 14 | 33 | 20% |
+| `qwen3.6` | **refined** | **27** | **18** | **9** | **67%** |
+
+Designed against evidence rather than intuition: the two earlier ablations left
+87 real suppressed answers already graded, and the predicate was written against
+that corpus — 14/14 fabrications still caught, 67 of 73 clean answers spared —
+with the real strings kept in `tests/test_claims.py`.
+
+**Read the "caught" column, not the fabrication totals.** Each config is a fresh
+set of outputs, so 11 unguarded against 3 blunt-guarded on Claude is sampling
+variance, not the guard working; it caught zero there. Reading the totals as an
+effect would repeat this project's most common error in a new place.
+
+**Four of the nine remaining "clean" losses are not losses.** They assert a
+negative finding no query established — *"there are no recorded sessions"*,
+*"zero distinct sessions recorded"* — after every query had failed. That is §1
+with the sign flipped, and `numeric_fabrication` misses it because `allow_zero`
+treats `0` as always permissible. Logged as grader defect 18, against the
+grader rather than the guard. Genuine residual cost: **five coarsened refusals
+across 400 runs**.
+
 ## [0.1.31] - 2026-08-12
 
 A "What it's for" section, from first outside feedback.
