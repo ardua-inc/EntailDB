@@ -385,7 +385,9 @@ configuration.
 
 - **N=20 is blind to the relevant rate.** The link allowlist's real production
   catch rate was ~1 in 201 turns. A 0/20 carries a 95% upper bound of 16%.
-- **One case has never been triggered** (§2).
+- ~~**One case has never been triggered** (§2).~~ Superseded: §1's condition is
+  produced by the rebuilt fixture and the case reproduced on a local model. The
+  *reporting* of whether it triggered was separately broken — see defect 17.
 - **`claude-sonnet-4-6` is untested**, and covers the §1, §4 and §5 incidents.
 - **Prompt drift is unmeasured**, and is how the `stale-fact` incident happened.
 

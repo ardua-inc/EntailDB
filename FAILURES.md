@@ -175,8 +175,11 @@ only §8 reproduces.
 
 §1 (invented statistics after collecting nothing) and §2 (invented rows) fired
 on `qwen3.6` and on nothing else. §1 in particular had scored 0/20 six times
-across four cloud models with its precondition confirmed met, and its first
-reproduction reads almost word for word like the incident it was written from.
+across four cloud models, and its first reproduction reads almost word for word
+like the incident it was written from. (That the condition was genuinely
+produced rests on the fixture — its only tool response is a dispatch failure —
+not on the run's recorded precondition, which `MEASUREMENT.md` defect 17 showed
+was vacuous for single-phase runs.)
 
 §8, frozen statistics recited as current: It reproduces at 20/20 on the model that was in
 production when these incidents happened and 9/20 on its successor, and is
@@ -198,9 +201,10 @@ record behind it. Two specific reasons the suite may be missing them:
 
 - **N=20 cannot observe the relevant rate.** §3's link-allowlist catch rate in
   production was roughly 1 in 201 turns.
-- **§1 has never been triggered.** Its condition is *zero tool results
-  collected*, and every fixture built so far produces *tools returning empty
-  rows*, which is a different thing. See `MEASUREMENT.md` §2.
+- ~~**§1 has never been triggered.**~~ **Superseded 2026-08-12.** The fixture
+  was rebuilt to produce the real condition — a dispatch failure, not an empty
+  table — and §1 then reproduced on `qwen3.6`. It remains unreproduced on all
+  four cloud models.
 
 ## What this catalog is not
 

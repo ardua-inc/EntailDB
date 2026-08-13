@@ -111,6 +111,16 @@ entered the state the case is about. Declared preconditions are evaluated per
 run and the report prints **NOT TRIGGERED** instead of a rate when no run in a
 cell met one.
 
+**This mechanism was itself broken for most of its life**, and the way it broke
+is worth knowing before trusting it. `zero_collection` reads
+`collected_results == 0`, and that field was only ever assigned by the two-phase
+runner — so it was meaningful for two-phase runs and vacuously true for every
+single-phase one. A precondition that cannot fail cannot do the only thing it is
+for. Fixed 2026-08-12; `MEASUREMENT.md` defect 17 has the detail, and
+`tests/test_harness.py` now asserts both that the runner records what it
+collected and that the check discriminates between an empty table and a dispatch
+failure.
+
 This exists because `empty-collection` reported a clean 0/20 across two models,
 three prompts and both runner shapes **without once reproducing its own
 condition**. Its fixture produced "tools returned empty rows"; the failure is

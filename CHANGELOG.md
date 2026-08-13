@@ -2,6 +2,38 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.27] - 2026-08-12
+
+Documentation caught up with defect 17. No code change.
+
+Finding the defect and correcting the *finding* were not the same job, and four
+documents were still resting on the evidence it invalidated:
+
+- **`runs/AUDIT.md` cited the vacuous field as its verification.** That entry
+  offered `precondition_met: True` and `collected_results: 0` as proof the §1
+  reproduction was genuine, and both read identically on every run whatever
+  happened. Replaced with what the finding actually rests on: the fixture
+  declares one `unavailable` response and no others, so nothing is collectable
+  by construction, and the run's only served payload was the dispatch error.
+- **`FAILURES.md`** said §1's precondition was "confirmed met", and separately
+  still listed §1 as never triggered. Both corrected; the second is marked
+  superseded rather than deleted, because the earlier statement was true when
+  written.
+- **`README.md`** said the case had scored 0/20 "without once firing", which
+  conflated the failure not occurring with the condition not arising. It now
+  says which of those it means and on what evidence.
+- **`evals/README.md`** documented the NOT TRIGGERED mechanism without saying it
+  had been blind for single-phase runs for its whole life.
+
+`MEASUREMENT.md` now records that the blindness was not uniform — the field was
+real for two-phase runs (160 non-zero) and always zero for single-phase ones —
+which is what decides that two-phase conclusions resting on it survive and
+single-phase ones do not.
+
+The README also no longer implies the guard ablation is finished. It is running,
+and it is designed to answer whether the guard fires when it *should not*, since
+a deterministic guard trivially prevents what it catches.
+
 ## [0.1.26] - 2026-08-12
 
 Measurement defect 17, the empty-collection ablation runner, and GitHub #1/#2.

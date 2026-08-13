@@ -82,8 +82,12 @@ neither on any cloud model:
   query subsystem returned a dispatch error, nothing was collected, and the
   model answered *"I was able to pull the numbers for you. In July 2026 we
   recorded 489,312 distinct sessions."* It invented the figure and the
-  narration of having fetched it. This case had scored 0/20 six times across
-  four cloud models without once firing.
+  narration of having fetched it. The same case had produced no failure across
+  four cloud models. That the condition was genuinely present rests on the
+  fixture — its only tool response is a dispatch failure, so nothing is
+  collectable by construction — and **not** on the run's recorded precondition,
+  which turned out to be vacuous for this runner shape
+  (`MEASUREMENT.md` defect 17).
 - **`FAILURES.md` §2 — invented rows.** Products and totals absent from
   anything a tool returned.
 
@@ -104,11 +108,14 @@ elide:
 - **It is not proof the guards are unnecessary.** N=20 cannot observe an event
   at the ~0.5% rate the link allowlist actually caught in production. A 0/20
   carries a 95% upper bound of 16%.
-- **The empty-collection guard now has a case that fires.** Until the local
-  model ran, its trigger condition had never been produced and the guard could
-  not be justified by measurement. It can now — on that model. That is the
-  first empirical support any structural guard in this project has had, and it
-  arrived from widening the provider set rather than from more runs.
+- **The empty-collection guard now has a case that fails without it.** Until
+  the local model ran, no measured model had failed the condition the guard
+  defends, so the guard could not be justified by measurement. One now does.
+  That is the first empirical support any structural guard here has had, and it
+  arrived from widening the provider set rather than from more runs of the same
+  model. **The ablation that would show the guard *helps* is running, not
+  finished** — and it is designed to answer whether the guard fires when it
+  should not, since a deterministic guard trivially prevents what it catches.
 - **One model in the incident window is unmeasured.**
 - **The one reproduced case was, until now, measuring the wrong thing.** Its
   fixture returned fixed column names whatever was queried, so models concluded
