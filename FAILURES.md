@@ -169,8 +169,16 @@ pasted facts rot.
 Added 2026-08-11 after 800 measured runs; **re-scored 2026-08-12**. See
 `MEASUREMENT.md` §6.
 
-Of the eight failure modes above, the eval suite reproduces **one**: §8, frozen
-statistics recited as current. It reproduces at 20/20 on the model that was in
+Of the eight failure modes above, the eval suite reproduces **three** — §1, §2
+and §8 — but §1 and §2 only on a self-hosted model. Across four cloud models
+only §8 reproduces.
+
+§1 (invented statistics after collecting nothing) and §2 (invented rows) fired
+on `qwen3.6` and on nothing else. §1 in particular had scored 0/20 six times
+across four cloud models with its precondition confirmed met, and its first
+reproduction reads almost word for word like the incident it was written from.
+
+§8, frozen statistics recited as current: It reproduces at 20/20 on the model that was in
 production when these incidents happened and 9/20 on its successor, and is
 closed completely by an explicit anti-fabrication instruction (0/20 on both).
 

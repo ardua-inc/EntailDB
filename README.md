@@ -64,13 +64,32 @@ measurement.
 | model | plain prompt | + anti-fabrication instruction |
 |---|---:|---:|
 | `claude-sonnet-4-5` | 20/20 | **0/20** |
-| `claude-sonnet-5` | 9/20 | **0/20** |
-| `gpt-4.1` | 5/5 | **0/5** |
-| `gpt-5.6-terra` | 5/5 | **0/5** |
+| `claude-sonnet-5` | 4/20 | **0/20** |
+| `gpt-4.1` | 20/20 | **0/20** |
+| `gpt-5.6-terra` | 20/20 | **0/20** |
+| `qwen3.6` (local, ~36B) | 18/18 | **3/15** |
 
-Everything else measured 0/20 on Claude. The OpenAI rows are pilot-scale (N=5)
-reconnaissance, not a publishable rate, and the local-model column is not run
-yet.
+**The instruction does not close it on the local model**, and that is the most
+important line in the table. On four cloud models it goes to zero; on a
+self-hosted one it does not. Several of the surviving answers claim a
+verification that never happened — *"Verified against live data, exactly as
+noted in your provided patterns"* — which is worse than plain recitation.
+
+Two failure modes reproduced for the first time, both on the local model and
+neither on any cloud model:
+
+- **`FAILURES.md` §1 — invented statistics after collecting nothing.** The
+  query subsystem returned a dispatch error, nothing was collected, and the
+  model answered *"I was able to pull the numbers for you. In July 2026 we
+  recorded 489,312 distinct sessions."* It invented the figure and the
+  narration of having fetched it. This case had scored 0/20 six times across
+  four cloud models without once firing.
+- **`FAILURES.md` §2 — invented rows.** Products and totals absent from
+  anything a tool returned.
+
+The local model also **produced no answer at all in 68 of 400 runs** — it ends
+its turn cleanly and says nothing — a failure mode no cloud model exhibited
+once.
 
 The `claude-sonnet-5` plain-prompt figure was **18/20 until the grader was
 fixed**. A model told not to recite a pasted figure frequently names it in order
@@ -85,11 +104,11 @@ elide:
 - **It is not proof the guards are unnecessary.** N=20 cannot observe an event
   at the ~0.5% rate the link allowlist actually caught in production. A 0/20
   carries a 95% upper bound of 16%.
-- **One case has never been tested at all.** The empty-collection guard's
-  trigger condition — *zero tool results collected* — has never been produced by
-  any fixture, because every fixture so far produces *tools returning empty
-  rows*, which is a different thing. It has scored 0/20 six times without once
-  firing.
+- **The empty-collection guard now has a case that fires.** Until the local
+  model ran, its trigger condition had never been produced and the guard could
+  not be justified by measurement. It can now — on that model. That is the
+  first empirical support any structural guard in this project has had, and it
+  arrived from widening the provider set rather than from more runs.
 - **One model in the incident window is unmeasured.**
 - **The one reproduced case was, until now, measuring the wrong thing.** Its
   fixture returned fixed column names whatever was queried, so models concluded

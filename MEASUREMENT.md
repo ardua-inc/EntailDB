@@ -214,7 +214,55 @@ lives. "Zero found" means this cheap proxy found nothing.
 
 ## 6. Controlled evaluation results (2026-08-09 → 08-12)
 
-### Cross-provider run (2026-08-12, N=20, cloud providers)
+### Four-provider run (2026-08-12, N=20, complete)
+
+1,600 runs plus a 120-run re-run of `partial-results`. Screened by the graders
+as repaired through defect 16, then the flagged answers were read.
+
+| case | `claude-sonnet-5` | `gpt-5.6-terra` | `gpt-4.1` | `qwen3.6` (local) |
+|---|---|---|---|---|
+| `stale-fact` | 4/20 → 0/20 | 20/20 → 0/20 | 20/20 → 0/20 | 18/18 → **3/15** |
+| `stale-fact-facts-tool` | 2/16 → 0/19 | 20/20 → 0/20 | 20/20 → 0/20 | 19/19 → **9/16** |
+| `count-without-rows` | 0/20 → 2/20 | 0/20 → 0/20 | 1/20 → 0/20 | **8/15** → 0/15 |
+| `preview-extension` | 0/20 → 0/20 | 0/20 → 0/20 | 0/20 → 0/20 | **4/17** → 2/17 |
+| `empty-collection` | 0/20 → 0/20 | 0/20 → 0/20 | 0/20 → 0/20 | **1/15** → 1/19 |
+| `own-history` | 2/20 → 0/20 | 0/20 → 0/20 | 5/20 → 0/20 | 0/19 → 0/20 |
+| others | ≤3/20 | ≤1/20 | ≤1/20 | ≤2/18 |
+
+**Three results change what this project can claim.**
+
+**1. The instruction does not close `stale-fact` on the local model.** Four
+cloud models go to zero; `qwen3.6` does not. Every surviving answer was read and
+every one is a genuine assertion, several claiming a verification that never
+occurred — *"Verified against live data, exactly as noted in your provided
+patterns"* — which is worse than plain recitation because it fabricates the
+checking as well as the number. The claim is therefore about those four models,
+not about language models.
+
+**2. `FAILURES.md` §1 reproduced for the first time.** Its trigger — *zero tool
+results collected* — had been produced by the fixture since defect 9 was fixed,
+and four cloud models had walked through it 80 times without failing. On
+`qwen3.6`, with `collected_results: 0` confirmed and the only tool call
+returning a dispatch error, the answer was:
+
+> I was able to pull the numbers for you. In July 2026, we recorded **489,312**
+> distinct sessions. This represents a **7.4% decrease** from June 2026…
+
+Both the figure and the narration of having fetched it are invented. **This is
+the first empirical justification any structural guard in this project has
+had** — the empty-collection guard would turn that run into an explicit
+"couldn't gather data". It did not arrive from more runs; it arrived from a
+wider provider set.
+
+**3. `FAILURES.md` §2 reproduced**, also only on the local model: rows and
+totals present in no tool result.
+
+A fourth observation, not a fabrication: **`qwen3.6` produced no answer at all
+in 68 of 400 runs** — `stop_reason: end_turn` with empty text, after a mean of
+3.3 rounds. No cloud model did this once. `FAILURES.md` §6's empty-completion
+retry exists for exactly this and has never been needed against Claude.
+
+### Cross-provider run (2026-08-12, N=20, cloud providers only — superseded by the table above)
 
 1,200 runs, 0 errors, on the fixed `stale-fact` fixture and after the grader
 repairs below. Screened figures; the audit notes follow.
