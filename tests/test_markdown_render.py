@@ -533,3 +533,44 @@ def test_a_notice_is_not_part_of_the_answer():
     out = play([{"k": "notice", "v": "Claude's API is busy."},
                 {"k": "text", "v": "Real answer."}])
     assert out["answer"] == "Real answer."
+
+
+# ── issue #2: the work is available, not in the way ───────────────────────
+
+def test_result_and_sql_panels_are_collapsed_by_default():
+    """GitHub #2. The summary carries what a reader needs at a glance — "SQL",
+    "50 of 4312 rows" — so the answer stays readable and the evidence is one
+    click away rather than something to scroll past."""
+    page = PAGE.read_text()
+    script = page[page.index("<script>"):]
+    assert 'details class="trace" open' not in script
+    assert script.count('details class="trace"') >= 2
+
+
+def test_a_failed_query_panel_stays_open():
+    """The deliberate exception. A failure is not work to inspect on request;
+    a collapsed panel reads like a step that went fine."""
+    render = PAGE.read_text()
+    block = render[render.index("function renderResult("):render.index("async function send(")]
+    error_branch = block[block.index("data.error"):block.index("} else if")]
+    assert "box.open = true" in error_branch
+
+
+def test_the_generated_facts_document_wraps():
+    """GitHub #1. The facts document is prose; horizontal scrolling to read a
+    sentence is not reading. SQL keeps its own scroll, where a broken line
+    changes meaning."""
+    page = PAGE.read_text()
+    assert "pre.doc" in page
+    assert "white-space:pre-wrap" in page[page.index("pre.doc"):page.index("pre.doc") + 200]
+    assert 'class="doc"' in page[page.index("facts generated") - 400:
+                                 page.index("facts generated") + 400]
+
+
+def test_sql_is_not_forced_to_wrap():
+    """Deliberately different from the facts document: a wrapped SQL line reads
+    as a different statement than the one that ran."""
+    page = PAGE.read_text()
+    sql_panel = page[page.index("<summary>SQL</summary>") - 200:
+                     page.index("<summary>SQL</summary>") + 200]
+    assert 'class="doc"' not in sql_panel

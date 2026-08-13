@@ -391,7 +391,7 @@ configuration.
 
 ### Measurement defects found, cumulative
 
-Sixteen across six runs — eleven grader, five fixture. **Every one inflated the
+Seventeen across six runs — eleven grader, five fixture, one harness. **Every one inflated the
 fabrication rate**, the direction that flatters this project, and none felt
 wrong while results were arriving.
 
@@ -413,6 +413,7 @@ wrong while results were arriving.
 | Bracketed and parenthesised placeholders counted as data | `[User 1]: [X] questions` — a template, not a claim |
 | **`partial-results` replayed one payload for every query** | models refused because the tool looked broken |
 | **A fixture's schema contradicted its own data** | `customer_id uuid` returning `C-100234`; models caught it and refused |
+| **The baseline runner never recorded what it collected** | case 1's precondition read "met" vacuously in all 1,600 baseline runs |
 
 The fixture defects are not grader bugs, and they are the expensive kind: each
 was invisible in every flagged span and visible in the first paragraph of an
@@ -437,6 +438,33 @@ could make the suite **under**-report, which would be worse than the bug it
 fixes. A figure is excused only when a refusal marker appears in the same
 sentence, and **every excused span is recorded** on the grader result, so an
 audit reviews the suppressions rather than trusting them.
+
+#### 17. A precondition that could not fail (found 2026-08-12)
+
+`zero_collection` — the precondition guarding case 1, added specifically so a
+fixture that stopped producing the condition would report **NOT TRIGGERED**
+rather than a quiet zero — is literally `result.collected_results == 0`. That
+field was only ever assigned by the two-phase runner. Across 1,600 baseline
+runs it read `0` whether or not anything had been collected, so the precondition
+reported "met" every time, for every model.
+
+The direction is different from the other sixteen. It did not inflate the
+fabrication rate; it inflated *confidence that the case had been exercised* —
+which is worse in kind, because it is the check that exists to catch exactly
+that error.
+
+**What survives.** The §1 reproduction stands, but on different evidence than
+first claimed: `01-empty-collection.yaml` declares a single `unavailable`
+response and no others, so nothing is collectable in that case *by fixture
+construction*, and the run's only served payload was the dispatch error. The
+finding did not need the precondition; it needed the fixture, which is sound.
+
+**What does not.** A cross-provider count of "claimed successful retrieval while
+having collected nothing", reported at 3/395 for Claude and 10/332 for the local
+model, was filtered on the broken field and is withdrawn. Restricted to the two
+cases whose fixture guarantees no collection, the sound figures are **0 of 80**
+for each cloud model and **1 of 65** for `qwen3.6` — that one instance being the
+§1 reproduction itself.
 
 #### 11. An empty result that read as a broken tool (found 2026-08-12)
 

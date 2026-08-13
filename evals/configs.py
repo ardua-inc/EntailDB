@@ -75,6 +75,17 @@ def _baseline_profiled(client: Any, model: str, max_rounds: int) -> Runner:
     )
 
 
+def _baseline_guarded(client: Any, model: str, max_rounds: int) -> Runner:
+    from .runners.guarded import GuardedRunner
+
+    return GuardedRunner(
+        client=client,
+        system_prompt=load_prompt("neutral"),
+        model=model,
+        max_rounds=max_rounds,
+    )
+
+
 def _two_phase(client: Any, model: str, max_rounds: int) -> Runner:
     return TwoPhaseRunner(
         client,
@@ -102,6 +113,7 @@ def _two_phase_domain(client: Any, model: str, max_rounds: int) -> Runner:
 CONFIGS: dict[str, RunnerFactory] = {
     "baseline": _baseline,
     "baseline-instructed": _baseline_instructed,
+    "baseline-guarded": _baseline_guarded,
     "baseline-domain": _baseline_domain,
     "baseline-profiled": _baseline_profiled,
     "two-phase": _two_phase,

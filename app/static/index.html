@@ -97,6 +97,10 @@
   details.trace[open] > summary::before { content:"▾ "; }
   pre { margin:0; padding:10px 12px; background:var(--code); overflow-x:auto;
         font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  /* The generated facts document is prose, not code: its lines run past any
+     sensible width, and horizontal scrolling to read a sentence is not
+     reading. SQL keeps its own scroll, where a broken line changes meaning. */
+  pre.doc { white-space:pre-wrap; overflow-wrap:anywhere; overflow-x:visible; }
   table { border-collapse:collapse; width:100%; font-size:12.5px; display:block;
           overflow-x:auto; max-height:340px; }
   th,td { border:1px solid var(--line); padding:4px 8px; text-align:left;
@@ -154,8 +158,9 @@
 
 <main>
   <div class="banner">
-    Every answer shows the SQL it ran and the rows it got back. Check the prose
-    against the data — that is what this tool is for.
+    Every answer keeps the SQL it ran and the rows it got back — click any
+    panel to open it. Check the prose against the data; that is what this tool
+    is for.
   </div>
   <div id="thread"></div>
 </main>
@@ -459,6 +464,10 @@ function renderResult(body, raw) {
   if (data && data.error) {
     box.querySelector("summary").textContent = "query failed";
     box.appendChild(el(`<div class="note err">${esc(data.error)}</div>`));
+    // Errors stay open. A failure is not work to inspect on request; it is
+    // something the reader has to know happened, and a collapsed panel reads
+    // like a step that went fine.
+    box.open = true;
     addCopy(box, () => data.error, "Copy the error message");
   } else if (data && data.columns) {
     const n = data.rows.length;
@@ -477,7 +486,10 @@ function renderResult(body, raw) {
       data.total_rows_matched && data.total_rows_matched > n
         ? `Copy these ${n} rows for a spreadsheet — preview only, ${data.total_rows_matched} matched`
         : `Copy ${n} row${n === 1 ? "" : "s"} for a spreadsheet`);
-    box.open = true;
+    // Collapsed. The summary already carries what a reader needs to notice at
+    // a glance -- the row count, and "50 of 4312" when it is a preview -- so
+    // the answer stays readable and the evidence is one click away rather than
+    // scrolled past.
   } else {
     box.appendChild(el(`<pre>${esc(raw)}</pre>`));
     addCopy(box, () => raw, "Copy the raw result");
@@ -498,7 +510,7 @@ function applyEvent(body, stream, ev) {
     if (ev.text) stream.text(ev.text);
   } else if (kind === "tool_call") {
     const box = el(
-      `<details class="trace" open><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
+      `<details class="trace"><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
     addCopy(box, () => ev.sql, "Copy this SQL");
     stream.block(box);
   } else if (kind === "notice") {
@@ -907,7 +919,7 @@ $("#profileBtn").onclick = async () => {
   try {
     const r = await (await fetch(`/api/connections/${id}/profile`, { method: "POST" })).json();
     const body = addMessage("data facts", "bot");
-    const box = el(`<details class="trace" open><summary>${r.facts} facts generated</summary><pre>${esc(r.document)}</pre></details>`);
+    const box = el(`<details class="trace"><summary>${r.facts} facts generated</summary><pre class="doc">${esc(r.document)}</pre></details>`);
     addCopy(box, () => r.document, "Copy the facts document");
     body.appendChild(box);
   } finally { $("#profileBtn").textContent = "Profile"; $("#profileBtn").disabled = false; }

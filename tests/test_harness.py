@@ -625,3 +625,52 @@ class TestPreconditionReporting:
         assert r.collected_results == 0
         assert r.answer_text == "49,442 sessions"
         assert client.messages.calls[-1]["tools"] == []
+
+
+# ── the precondition must not be vacuously true ───────────────────────────
+
+def test_the_baseline_runner_records_what_it_collected():
+    """`zero_collection` is literally `collected_results == 0`, and only the
+    two-phase runner ever set that field. It read 0 in all 1,600 baseline runs,
+    so case 1's precondition reported "met" whether or not the condition held —
+    and a precondition that is always true cannot detect a fixture that stopped
+    producing its condition, which is its only job."""
+    from evals.fixtures import FixtureToolLayer, load_cases
+    from evals.runners.baseline import BaselineRunner
+
+    case = next(c for c in load_cases() if c.id == "preview-extension")
+
+    class OneCallThenAnswer:
+        def __init__(self): self.calls = 0
+        @property
+        def messages(self): return self
+        def create(self, **kw):
+            self.calls += 1
+            if self.calls == 1:
+                block = type("B", (), {"type": "tool_use", "id": "c",
+                                       "name": case.tools[0].name, "input": {}})()
+                return type("R", (), {"content": [block], "stop_reason": "tool_use",
+                                      "usage": None})()
+            text = type("T", (), {"type": "text", "text": "done"})()
+            return type("R", (), {"content": [text], "stop_reason": "end_turn",
+                                  "usage": None})()
+
+    result = BaselineRunner(OneCallThenAnswer(), "sys").run(
+        case, FixtureToolLayer(case), 0)
+    assert result.collected_results == 1
+
+
+def test_zero_collection_discriminates_between_the_cases():
+    """An empty *table* is data ("there were none"); a dispatch failure is an
+    absence of data. Conflating them is what made this control untestable."""
+    from evals.fixtures import FixtureToolLayer, load_cases
+
+    layers = {}
+    for cid in ("empty-collection", "preview-extension"):
+        case = next(c for c in load_cases() if c.id == cid)
+        layer = FixtureToolLayer(case)
+        layer.execute(case.tools[0].name, {"query": "SELECT count(*) FROM orders"})
+        layers[cid] = layer.collected_count
+
+    assert layers["empty-collection"] == 0
+    assert layers["preview-extension"] > 0

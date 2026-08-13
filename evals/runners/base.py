@@ -37,6 +37,11 @@ class RunResult:
     # Two-phase runners only; 0 on single-phase.
     phase1_rounds: int = 0
     collected_results: int = 0
+    # Set by a guarded runner: whether the guard fired, and what it replaced.
+    # The suppressed prose is kept because a guard that silently discards the
+    # thing it prevented cannot be audited for over-firing.
+    guard_fired: bool = False
+    suppressed_text: str = ""
     phase2_retried: bool = False
     phase2_skipped: bool = False
     # None when the case declares no precondition.
@@ -71,6 +76,8 @@ class RunResult:
             "max_rounds": self.max_rounds,
             "phase1_rounds": self.phase1_rounds,
             "collected_results": self.collected_results,
+            "guard_fired": self.guard_fired,
+            "suppressed_text": self.suppressed_text,
             "phase2_retried": self.phase2_retried,
             "phase2_skipped": self.phase2_skipped,
             "precondition_met": self.precondition_met,

@@ -102,6 +102,7 @@ class BaselineRunner:
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
                 if not tool_uses:
                     result.answer_text = text
+                    result.collected_results = tools.collected_count
                     break
 
                 messages.append(
@@ -130,6 +131,7 @@ class BaselineRunner:
                 # nothing -- recorded rather than retried, because a runner
                 # that never converges is itself a result.
                 result.exhausted_rounds = True
+                result.collected_results = tools.collected_count
                 result.answer_text = (
                     result.all_assistant_text[-1]
                     if result.all_assistant_text
