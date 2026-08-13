@@ -355,9 +355,22 @@ does not produce bugs. Where a real engine is free to stand up, use one.
       reciting it; excused spans are recorded, never dropped
 - [x] Defect 11 fixed: an empty result echoes the query's aliases
 - [x] Documentation re-scored and corrected before any further runs
-- [ ] **Full N=20 run.** Cloud providers are ~7 minutes each; local qwen3.6 is
-      ~95s/run and wants an overnight slot. The harness appends and skips
-      completed work, so an interrupted overnight run resumes.
+- [x] **Full N=20 run**, four providers, 1,600 runs plus a 120-run re-run of
+      `partial-results`.
+- [x] **The empty-collection ablation** on `qwen3.6`: 56/200 → 27/200.
+- [x] **The same ablation on Claude.** Confirmed, in the strong form: 40
+      firings, **0** fabrications prevented, **40** good refusals destroyed. The
+      guard must not default to on. Wrong in shape though — it does not fire
+      broadly on Claude, only where nothing is collectable, because Claude
+      always calls a tool.
+- [ ] **A refined guard: fire only when the answer asserts something.** Now the
+      priority rather than a nicety. All 40 suppressed Claude answers were
+      refusals, so this would fire zero times there while still catching the 14
+      fabrications on `qwen3.6` — turning "helps weak models, harms strong ones"
+      into "helps weak models, no-op on strong ones", which is a control that
+      can ship on by default. Build, then measure both models the same way.
+- [ ] `claude-sonnet-4-6` is still unmeasured and covers the §1, §4 and §5
+      incidents.
 
 ### Lesson captured
 
@@ -368,3 +381,50 @@ graders are a screen, and the audit produces the number.** I treated a screen
 output as a measurement, and a screen that had already been wrong nine times.
 Read the flagged answers before believing a rate, including when the rate
 appears to confirm something interesting.
+
+
+## Backlog — sharing measurements, and telemetry
+
+Two options, deliberately sequenced. The second is not a bigger version of the
+first; it is a different trade.
+
+### 1. `python -m evals run --share` (do this one first, when there are users)
+
+Emit a redacted, **audited** result bundle the user can look at and then attach
+to a GitHub issue or email. No service to run, no ingestion endpoint, no privacy
+policy, no GDPR posture — and the user is a participant rather than a subject.
+
+What makes it worth doing before telemetry: it preserves the audit step. The
+bundle carries the flagged answers, so a rate arriving from a stranger can be
+checked the same way a rate measured here is checked.
+
+Open questions when it is built: what redaction actually removes (schema names
+and row values at minimum), and whether the bundle is readable enough that a
+sender will genuinely review it before sending.
+
+### 2. Opt-in anonymous counters (decide only if uptake justifies it)
+
+The constraint is this project's own history: **every one of the seventeen
+measurement defects was caught by reading flagged answers.** A telemetry stream
+reporting "fabrication rate 18/20" would have shipped that number as fact when
+the true figure was 0/20. Telemetry produces screens that cannot be audited, and
+the finding of this whole project is that unaudited screens are wrong in the
+flattering direction.
+
+So the line: **collect only what is true by construction, never what required a
+judgement.**
+
+- Safe, because the runner knows them as facts about mechanism: guard fired,
+  tool calls made, results collected, rounds used, empty answers, provider kind,
+  error class, retries.
+- Not safe: fabrication rates, "figures absent from results" counts — anything a
+  grader decided. And never answer text, SQL, schema names or rows, which are
+  precisely what an audit would need.
+
+That constraint is less limiting than it sounds: "17% of turns on this model
+produce no answer at all" and "the guard fired on 35% of turns" are structural,
+genuinely new from real workloads, and invisible to N=20 fixtures.
+
+Requirements if it is built: off by default, explicit opt-in, and a **"show me
+exactly what would be sent"** view that prints the real payload. A tool that
+asks to be trusted while hiding its own work is arguing against itself.

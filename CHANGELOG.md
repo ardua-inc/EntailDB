@@ -2,6 +2,43 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.30] - 2026-08-12
+
+The guard ablation on Claude, and the shipping decision it settles.
+
+I predicted the empty-collection guard would be *pure cost* on a model that does
+not fabricate in this condition. Run: **40 firings, 0 fabrications prevented, 40
+clean answers destroyed.** Every one replaced a specific, actionable refusal —
+*"the data warehouse is currently unavailable (no connections in the pool)"* —
+with one generic sentence, buying nothing.
+
+| | `qwen3.6` | `claude-sonnet-5` |
+|---|---|---|
+| guard fired | 70/200 | 40/200 |
+| …suppressed a fabrication | 14 | **0** |
+| …suppressed a clean answer | 33 | **40** |
+| fabrications unguarded → guarded | 56/200 → 27/200 | 5/200 → 3/200 |
+
+Right in substance, wrong in shape: the guard does **not** fire broadly on
+Claude, only where nothing is collectable, because Claude always calls a tool.
+The cost is narrower than predicted and entirely uncompensated.
+
+**The empty-collection guard therefore ships off by default.** Its value inverts
+with the model — halves fabrication on one, pure loss on another — which makes
+it a per-profile setting rather than a guard. That conclusion came from the
+measurement; no amount of reasoning about the design would have produced it, and
+the version of this project that shipped the guard on principle would have made
+every Claude user's error messages worse for nothing.
+
+It also promotes the refined guard from nicety to the actual answer. All 40
+suppressed Claude answers were refusals, so firing only when the answer
+*asserts* something would fire zero times there and still catch the 14
+fabrications on `qwen3.6`.
+
+Backlog updated with the two telemetry options, sequenced: an audited
+`--share` bundle first, opt-in counters only if uptake justifies them, and never
+collecting anything a grader decided.
+
 ## [0.1.29] - 2026-08-12
 
 The empty-collection ablation, run at last.

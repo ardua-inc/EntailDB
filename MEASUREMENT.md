@@ -259,15 +259,44 @@ straightforwardly fixable, and the fix is the obvious next iteration: fire only
 when the answer asserts something, and leave a model that is already refusing to
 refuse in its own words.
 
-**Two costs this measurement cannot see**, stated because the table would
-otherwise be read as a clean win:
+**The same ablation on `claude-sonnet-5`** — run because "pure cost on a strong
+model" was a prediction, and an untested prediction is not a caveat:
 
-- **On a strong model the guard is pure cost.** Claude never fabricated in this
-  condition, so the guard would fire, prevent nothing, and replace good refusals
-  with generic ones. Untested, and worth testing before it ships on by default.
-- **No case here is answerable without a query.** A question the model could
-  correctly answer from the schema alone would be blocked, and this fixture set
-  never asks one.
+| | `qwen3.6` | `claude-sonnet-5` |
+|---|---|---|
+| guard fired | 70/200 | 40/200 |
+| …suppressed a fabrication | 14 | **0** |
+| …suppressed a clean answer | 33 | **40** |
+| …suppressed nothing | 23 | 0 |
+| fabrications, unguarded → guarded | 56/200 → 27/200 | 5/200 → 3/200 |
+
+**Every firing on Claude destroyed a good answer and prevented nothing.** The
+remaining 3 are on cases the guard never touched; the difference from 5 is noise
+at these counts.
+
+The prediction was right in substance and wrong in shape. The guard does *not*
+fire broadly on Claude — only on the two cases where nothing is collectable,
+because Claude always calls a tool. So the cost is narrower than predicted and
+entirely uncompensated: 40 specific, actionable refusals — *"the data warehouse
+is currently unavailable (no connections in the pool)"* — replaced by one
+generic sentence, buying nothing.
+
+**This decides a shipping question.** The empty-collection guard must not default
+to on. On a model that fabricates in this condition it halves fabrication; on a
+model that does not, it is pure loss. A guard whose value inverts with the model
+is a per-profile setting, not a default — which is an argument the measurement
+produced and no amount of reasoning about the design would have.
+
+It also sharpens the refined guard from a nice-to-have into the actual answer.
+All 40 suppressed Claude answers were refusals; a guard that fires only when the
+answer *asserts* something would fire zero times here while still catching the
+14 fabrications on `qwen3.6`. That converts "helps weak models, harms strong
+ones" into "helps weak models, no-op on strong ones", which is a control that
+can ship on by default.
+
+**One cost neither run can see:** no case in this suite is answerable without a
+query, so a question the model could rightly answer from schema alone would be
+blocked and the harness would never know.
 
 ### Four-provider run (2026-08-12, N=20, complete)
 

@@ -143,8 +143,13 @@ elide:
   data behind it necessarily collected something — so the usual worry about an
   eager guard does not apply. Its actual cost is narrower and real: of 70
   firings, 33 replaced the model's own specific refusal with a generic one.
-  `MEASUREMENT.md` has the breakdown, including two costs the measurement
-  cannot see.
+
+  Run again on `claude-sonnet-5`, the guard fired **40 times, prevented zero
+  fabrications, and destroyed 40 good refusals**. Its value inverts with the
+  model, so it ships **off by default** rather than as a guard — the
+  measurement decided that, and no amount of reasoning about the design would
+  have. `MEASUREMENT.md` has the breakdown and the refinement that would fix
+  it.
 - **One model in the incident window is unmeasured.**
 - **The one reproduced case was, until now, measuring the wrong thing.** Its
   fixture returned fixed column names whatever was queried, so models concluded
