@@ -2,6 +2,39 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.29] - 2026-08-12
+
+The empty-collection ablation, run at last.
+
+The row `MEASUREMENT.md` has carried since the first commit and never been able
+to fill, because until a model failed the case there was nothing to protect.
+On `qwen3.6`: **56/200 fabrications unguarded, 27/200 guarded.**
+
+**The guard is broader than its specification, and that is where the effect
+comes from.** `collected_results == 0` is true in two situations, and
+`FAILURES.md` §1 describes only one: the tools can fail, or the model can never
+ask. On `stale-fact`, `qwen3.6` made zero tool calls in 14 of 20 runs, reciting
+the prompt's figure without looking anything up. Catching "answered without
+checking" turns out to matter more on a weak model than catching "checked and
+got nothing" — 18/20 → 4/20 on that case, a larger effect than the
+anti-fabrication instruction achieved there.
+
+**Its cost, priced exactly** by grading what each of the 70 firings threw away:
+14 suppressed a fabrication, 23 suppressed nothing because the model had said
+nothing, and **33 suppressed a clean answer**. Every one of those 33 is the
+model's own refusal — *"the data warehouse is currently unavailable (no
+connections in the pool). I can try running it again"* — replaced by a generic
+one. A specific, actionable refusal became a vague one: a real regression in
+quality, not in fidelity, and fixable by firing only when the answer asserts
+something.
+
+Two costs this measurement cannot see, recorded rather than glossed: on a strong
+model the guard is **pure cost**, since Claude never fabricated in this condition
+and the guard would fire, prevent nothing, and coarsen good refusals; and no case
+in this suite is answerable without a query, so a question the model could
+rightly answer from schema alone would be blocked and the harness would never
+know.
+
 ## [0.1.28] - 2026-08-12
 
 Define "entailed" in the README, since the project is named for it.

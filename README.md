@@ -136,9 +136,15 @@ elide:
   defends, so the guard could not be justified by measurement. One now does.
   That is the first empirical support any structural guard here has had, and it
   arrived from widening the provider set rather than from more runs of the same
-  model. **The ablation that would show the guard *helps* is running, not
-  finished** — and it is designed to answer whether the guard fires when it
-  should not, since a deterministic guard trivially prevents what it catches.
+  model.
+
+  **The ablation is now run.** On `qwen3.6`, fabrications go **56/200 → 27/200**
+  with the guard. It cannot suppress a well-supported answer — an answer with
+  data behind it necessarily collected something — so the usual worry about an
+  eager guard does not apply. Its actual cost is narrower and real: of 70
+  firings, 33 replaced the model's own specific refusal with a generic one.
+  `MEASUREMENT.md` has the breakdown, including two costs the measurement
+  cannot see.
 - **One model in the incident window is unmeasured.**
 - **The one reproduced case was, until now, measuring the wrong thing.** Its
   fixture returned fixed column names whatever was queried, so models concluded

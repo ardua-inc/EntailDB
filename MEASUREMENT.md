@@ -214,6 +214,61 @@ lives. "Zero found" means this cheap proxy found nothing.
 
 ## 6. Controlled evaluation results (2026-08-09 → 08-12)
 
+### The empty-collection ablation (2026-08-12, `qwen3.6`, N=20)
+
+The row this document has carried since the beginning and never been able to
+fill, because until a model failed the case there was nothing to protect.
+
+| | fabrications |
+|---|---|
+| `baseline` | **56/200** |
+| `baseline-guarded` | **27/200** |
+
+Concentrated where the guard fired: 48/120 → 22/120 across the six cases it
+touched. The three cases it never fired on moved 8/60 → 5/60, which at these
+counts is run-to-run variance, not an effect.
+
+**The guard is broader than its specification, and that is where the effect
+comes from.** `collected_results == 0` is true in two situations and `FAILURES.md`
+§1 describes only one. The tools can fail — or the model can never ask. On
+`stale-fact`, `qwen3.6` made **zero tool calls in 14 of 20 runs**, reciting the
+prompt's figure without looking anything up. The guard catches "answered without
+checking" as well as "checked and got nothing", and the former is the more
+common failure on a weak model. That drops `stale-fact` from 18/20 to 4/20 — a
+larger effect than the anti-fabrication instruction managed on this model.
+
+**What it cannot cost.** It cannot suppress a well-supported answer, by
+construction: an answer with data behind it necessarily collected something, and
+the guard only fires when nothing was collected. The usual worry about an eager
+guard does not apply.
+
+**What it does cost.** Every one of the 70 firings was graded on what it threw
+away:
+
+| | |
+|---|---|
+| suppressed a fabrication — the point | 14 |
+| suppressed nothing; the model had said nothing | 23 |
+| **suppressed a clean answer** | **33** |
+
+All 33 are the model's *own refusal* — "the data warehouse is currently
+unavailable (no connections in the pool). I can try running it again" — replaced
+by the guard's generic one. That is a real regression in answer quality and not
+a fidelity loss: a specific, actionable refusal became a vague one. It is also
+straightforwardly fixable, and the fix is the obvious next iteration: fire only
+when the answer asserts something, and leave a model that is already refusing to
+refuse in its own words.
+
+**Two costs this measurement cannot see**, stated because the table would
+otherwise be read as a clean win:
+
+- **On a strong model the guard is pure cost.** Claude never fabricated in this
+  condition, so the guard would fire, prevent nothing, and replace good refusals
+  with generic ones. Untested, and worth testing before it ships on by default.
+- **No case here is answerable without a query.** A question the model could
+  correctly answer from the schema alone would be blocked, and this fixture set
+  never asks one.
+
 ### Four-provider run (2026-08-12, N=20, complete)
 
 1,600 runs plus a 120-run re-run of `partial-results`. Screened by the graders
