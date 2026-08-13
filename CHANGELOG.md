@@ -2,6 +2,32 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.33] - 2026-08-12
+
+Two backlog items: charts and CSV download.
+
+Both exist in the prior deployment this work derives from, so the behaviour is
+known to be wanted rather than guessed at. Neither is a straight port, because
+each touches the entailment claim.
+
+**Charts.** A chart is another rendering of the rows and inherits the whole
+thesis. The failure mode is worse than an ugly graph: a chart whose bars do not
+correspond to the returned rows is a fabrication that *looks like evidence*, and
+nobody cross-checks a picture against a table. So the constraint is written down
+before the feature — the model may choose a chart type and a column mapping; the
+application renders from the actual result rows; the model never emits data
+points, an SVG, or a series. Same reasoning that produced the link allowlist: it
+may reference what a tool returned and may not invent one.
+
+**CSV download.** One trap, and it is this project's own failure in file form.
+Results are a bounded preview, so a download that quietly hands over 50 rows when
+4,312 matched is `partial-results` written to disk — to be opened in a
+spreadsheet next week by someone who never saw the preview notice. Either re-run
+unbounded with a cap and a warning, or name the file for what it is. Escaping
+reuses `toTSV` rather than being written a second time and drifting.
+
+The pointer to the source implementations is in the private manifest, not here.
+
 ## [0.1.32] - 2026-08-12
 
 The refined guard, built and measured on both models.

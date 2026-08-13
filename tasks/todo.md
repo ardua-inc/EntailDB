@@ -436,3 +436,54 @@ genuinely new from real workloads, and invisible to N=20 fixtures.
 Requirements if it is built: off by default, explicit opt-in, and a **"show me
 exactly what would be sent"** view that prints the real payload. A tool that
 asks to be trusted while hiding its own work is arguing against itself.
+
+
+## Backlog — output formats
+
+Both exist in the prior deployment this work derives from, so the behaviour is
+known to be wanted rather than guessed at. Neither is a straight port: each
+touches the entailment claim, and getting that wrong would put a fabrication
+somewhere harder to check than prose.
+
+### 3. Charts
+
+A chart is another rendering of the rows, so it inherits the whole thesis. The
+failure mode is specific and worse than a bad-looking graph: a chart whose bars
+do not correspond to the returned rows is a fabrication that **looks like
+evidence**, and nobody cross-checks a picture against a table.
+
+The design constraint follows directly, and it is the whole of the work:
+
+- The model may choose a **chart type and a column mapping** — "bar, category on
+  x, revenue on y".
+- The application renders from the **actual result rows**. The model never emits
+  data points, an SVG, or a series.
+
+Anything else and a model that can draw can draw whatever it likes. This is the
+same reasoning that put the link allowlist in: the model may reference a URL a
+tool returned and may not invent one.
+
+Second-order questions, once the constraint is settled: aggregation belongs in
+SQL rather than in the renderer (so the chart is of the rows, not of a transform
+of them nobody can see); a chart over a truncated preview must say so, exactly
+as the table does; and no chart library that loads anything off-host, which the
+page's CSP forbids anyway.
+
+### 4. CSV download
+
+Smaller, with one trap that is this project's own failure in file form.
+
+Results are a **bounded preview** — 50 rows, with the true total reported
+separately. A "download CSV" that quietly hands over 50 rows when 4,312 matched
+is `partial-results` written to disk, where it will be opened in a spreadsheet
+next week by someone who never saw the preview notice. So:
+
+- Either re-run the query unbounded, with a row cap and an explicit warning
+  above it, or name the file for what it is (`…-preview-50-of-4312.csv`) and say
+  so in the UI.
+- Reuse the escaping already written for copy-to-clipboard (`toTSV`): quoting
+  for embedded delimiters, newlines and quotes, and `NULL` written as `NULL`
+  rather than blanked. The rules were argued out once and a second
+  implementation would drift.
+- The same question the copy button already answers has to be answered again
+  here, and identically.
