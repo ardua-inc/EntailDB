@@ -29,6 +29,29 @@ Building another NL-to-SQL chat app is not interesting on its own. Building one
 that doesn't lie to you might be. The connectors and provider shims are
 commodity; the fidelity layer is the asset.
 
+### "Entailed"
+
+> **entail** *(verb)* — to have as a necessary consequence. In logic, one
+> statement entails another when the second cannot be false while the first is
+> true.
+
+So an answer is entailed by the data when the data leaves no room for the answer
+to be wrong. *"There are 2 stores"* is entailed by a query that returned
+`count = 2`. It is not entailed by a query that returned nothing, or errored, or
+counted something else — **even if the answer happens to be right**.
+
+That last clause is the whole point, and it is why "is it accurate?" is the
+wrong question to build around. A model that states a plausible number it never
+retrieved has failed even when the number is correct, because nothing about the
+process made it correct and nothing will catch it the next time it isn't. The
+one failure this project's suite reproduces is exactly that shape: a figure that
+was true when somebody measured it, presented as though it had just been looked
+up.
+
+Accuracy is a property of an answer. Entailment is a property of the *link*
+between an answer and its evidence — and that link is the thing a user cannot
+check for themselves unless the tool shows its work.
+
 ## What's here
 
 | Path | |

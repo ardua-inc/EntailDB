@@ -2,6 +2,26 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.28] - 2026-08-12
+
+Define "entailed" in the README, since the project is named for it.
+
+The word is doing real work and is not common outside logic and philosophy, so
+the README leaned on a term most of its likely readers would skim past. "The
+idea" now defines it — *to have as a necessary consequence* — and then does the
+part a definition alone would not: shows what the negation looks like.
+
+An answer is entailed by the data when the data leaves no room for it to be
+wrong. A number the model never retrieved is not entailed **even when it is
+correct**, because nothing about the process made it correct and nothing will
+catch it the next time it is not. That is precisely the shape of the one failure
+this suite reproduces: a figure that was true when somebody measured it,
+presented as though it had just been looked up.
+
+Stated as the distinction it is: accuracy is a property of an answer;
+entailment is a property of the link between an answer and its evidence — and
+that link is what a user cannot check without being shown the work.
+
 ## [0.1.27] - 2026-08-12
 
 Documentation caught up with defect 17. No code change.
