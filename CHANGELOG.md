@@ -2,6 +2,49 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.26] - 2026-08-12
+
+Measurement defect 17, the empty-collection ablation runner, and GitHub #1/#2.
+
+**A precondition that could not fail.** `zero_collection` guards case 1 and
+exists so a fixture that stopped producing the condition would report **NOT
+TRIGGERED** instead of a quiet zero. It is `result.collected_results == 0`, and
+that field was only ever assigned by the two-phase runner — so across 1,600
+baseline runs it read `0` regardless, and the precondition reported "met" every
+time for every model.
+
+The direction differs from the other sixteen. It did not inflate the
+fabrication rate; it inflated confidence that the case had been exercised, which
+is worse in kind, because catching exactly that is the only thing it does.
+
+The §1 reproduction survives on the fixture rather than the precondition:
+`01-empty-collection.yaml` declares one `unavailable` response and no others, so
+nothing is collectable there by construction. A cross-provider count of "claimed
+successful retrieval having collected nothing" is **withdrawn** — it was
+filtered on the broken field. Restricted to the cases whose fixture guarantees
+no collection, the sound figures are 0 of 80 per cloud model and 1 of 65 for
+`qwen3.6`, that one being the §1 reproduction itself.
+
+**`baseline-guarded`** — the empty-collection guard as a separate runner class,
+never a flag. The ablation row `MEASUREMENT.md` has carried since the beginning
+is finally runnable, because a model that fails the case finally exists. Its
+docstring is explicit that "does the guard prevent the failure" is close to
+tautological — the guard is deterministic — and that the question worth
+measuring is whether it **fires when it should not**, which the other nine cases
+answer.
+
+**GitHub #1** — the generated facts document is prose and now wraps. SQL keeps
+its horizontal scroll, where a broken line reads as a different statement than
+the one that ran.
+
+**GitHub #2** — SQL and result panels are collapsed by default. Summaries are
+unchanged, so the row count and any preview boundary stay visible at a glance.
+Failed queries stay open: a collapsed error reads like a step that went fine.
+The banner no longer says every answer "shows" its work, because it now offers
+it — the tool should not overstate itself in its own header.
+
+6 tests added (667 total).
+
 ## [0.1.25] - 2026-08-12
 
 The four-provider run completed, and it changes what this project claims.
