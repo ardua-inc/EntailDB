@@ -58,6 +58,16 @@ def _tsv_source() -> str:
     return page[start:page.index("function copyText(")]
 
 
+def _chart_source() -> str:
+    """Lift `chartGeometry` out of the page. Pure pixel math, tested apart
+    from `renderChart`'s DOM construction for the same reason `toTSV` is
+    tested apart from `renderResult`'s: there is no DOM stub in this
+    zero-dependency page, so only the pure half is reachable from Node."""
+    page = PAGE.read_text()
+    start = page.index("function chartGeometry(")
+    return page[start:page.index("function renderChart(")]
+
+
 def _stream_source() -> str:
     """Lift `createStreamRenderer` out of the page, with what it depends on."""
     page = PAGE.read_text()
@@ -454,6 +464,59 @@ def test_booleans_survive():
     assert tsv(["ok"], [[True], [False]]).split("\n")[1:] == ["true", "false"]
 
 
+# ── chart geometry ────────────────────────────────────────────────────────
+
+def geometry(points: list, width: int = 560, height: int = 170) -> dict:
+    script = (
+        _chart_source()
+        + "\nconst [pts, w, h] = JSON.parse(process.argv[1]);"
+        + "\nprocess.stdout.write(JSON.stringify(chartGeometry(pts, w, h)));"
+    )
+    done = subprocess.run(
+        ["node", "-e", script, json.dumps([points, width, height])],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_zero_is_the_baseline_for_all_positive_values():
+    """The common case: every bar grows up from the true zero line, which for
+    an all-positive set is the bottom edge of the plot."""
+    geo = geometry([{"x": "a", "y": 5}, {"x": "b", "y": 10}])
+    assert geo["zeroY"] == 170
+
+
+def test_negative_bars_are_scaled_against_the_true_zero_not_the_local_min():
+    """The bug this guards: scaling an all-negative set against its own
+    min/max instead of including zero draws the least-negative bar as flat and
+    the most-negative as full height, which reads as a comparison it is not.
+    With zero forced into the range, bar height is proportional to |y| — the
+    -3 bar must be three times the height of the -1 bar, not merely taller."""
+    geo = geometry([{"x": "a", "y": -1}, {"x": "b", "y": -3}])
+    small, big = geo["marks"][0]["barHeight"], geo["marks"][1]["barHeight"]
+    assert big == pytest.approx(3 * small, rel=0.01)
+
+
+def test_a_single_point_does_not_divide_by_zero():
+    geo = geometry([{"x": "only", "y": 5}])
+    assert geo["marks"][0]["barHeight"] is not None
+
+
+def test_an_all_zero_column_does_not_divide_by_zero():
+    geo = geometry([{"x": "a", "y": 0}, {"x": "b", "y": 0}])
+    for mark in geo["marks"]:
+        assert mark["barHeight"] is not None
+
+
+def test_points_are_plotted_in_the_given_order():
+    """No sort, no reorder — the same rule the table and TSV export already
+    follow for the same rows."""
+    geo = geometry([{"x": "z", "y": 1}, {"x": "a", "y": 9}, {"x": "m", "y": 3}])
+    xs = [m["cx"] for m in geo["marks"]]
+    assert xs == sorted(xs)  # strictly left-to-right in input order, not by y
+
+
 def test_every_trace_panel_offers_a_copy_control():
     """Each `details.trace` the page builds should be copyable; a new block
     type added without one would be an inconsistency users notice before
@@ -476,11 +539,30 @@ def test_the_copy_control_suppresses_the_summary_toggle():
     assert "e.stopPropagation()" in handler
 
 
+def test_the_chart_copy_button_reuses_toTSV():
+    """The backlog note this guards: 'reuse the escaping already written for
+    copy-to-clipboard... a second implementation would drift.' A chart is two
+    columns of the same rows the table already copies."""
+    page = PAGE.read_text()
+    chart_fn = page[page.index("function renderChart("):page.index("/* One event renderer")]
+    assert "toTSV(" in chart_fn
+
+
+def test_the_chart_title_is_escaped():
+    """`title` is the one field in a chart payload that is unverified model
+    prose rather than a real column name — it must go through the same
+    escaping as every other piece of model output rendered on this page."""
+    page = PAGE.read_text()
+    chart_fn = page[page.index("function renderChart("):page.index("/* One event renderer")]
+    assert "esc(data.title)" in chart_fn
+
+
 ESSENTIAL = [
     "loadSettings", "send", "boot", "applyEvent", "replay", "openThread",
     "startDraft", "refreshThreads", "renderThreads", "openMostRecentOrDraft",
     "renderResult", "createStreamRenderer", "addCopy", "md", "toTSV", "api",
     "whenLabel", "selectedAfterReload", "renderProfiles", "showActiveModel",
+    "renderChart", "chartGeometry",
 ]
 
 
@@ -554,6 +636,16 @@ def test_a_failed_query_panel_stays_open():
     block = render[render.index("function renderResult("):render.index("async function send(")]
     error_branch = block[block.index("data.error"):block.index("} else if")]
     assert "box.open = true" in error_branch
+
+
+def test_a_chart_panel_opens_by_default():
+    """Different from the table/SQL default above: a chart was asked for by
+    name, so it is the answer, not evidence to check on request. Reported by
+    a user — collapsed, the model could say "see the chart above" and the
+    chart itself stayed hidden behind a click."""
+    page = PAGE.read_text()
+    chart_fn = page[page.index("function renderChart("):page.index("/* One event renderer")]
+    assert "box.open = true" in chart_fn
 
 
 def test_the_generated_facts_document_wraps():

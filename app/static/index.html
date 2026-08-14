@@ -106,6 +106,9 @@
   th,td { border:1px solid var(--line); padding:4px 8px; text-align:left;
           white-space:nowrap; }
   th { background:var(--code); position:sticky; top:0; }
+  .chartWrap { padding:10px 12px 6px; }
+  .chartTitle { color:var(--muted); font-size:12.5px; margin-bottom:4px; }
+  .chartSvg { width:100%; height:auto; display:block; overflow:visible; }
   .ver { font-size:11px; color:var(--muted); letter-spacing:.02em; }
   .note { padding:6px 12px; font-size:12.5px; color:var(--muted); }
   .note.wait { color:var(--muted); font-style:italic; }
@@ -457,18 +460,25 @@ function addCopy(box, getText, title) {
 }
 
 /* Results render as a real table, not a JSON blob. The point of showing the
-   tool result is that a person can actually check the answer against it. */
-function renderResult(body, raw) {
+   tool result is that a person can actually check the answer against it.
+
+   `name` is which tool produced `raw` — `render_chart`'s errors and
+   `run_sql`'s errors share the same `{"error": ...}` shape, so the summary
+   text is the only thing that needs to know which tool this was. */
+function renderResult(body, raw, name) {
   let data; try { data = JSON.parse(raw); } catch { data = null; }
   const box = el(`<details class="trace"><summary>result</summary></details>`);
   if (data && data.error) {
-    box.querySelector("summary").textContent = "query failed";
+    box.querySelector("summary").textContent =
+      name === "render_chart" ? "chart not drawn" : "query failed";
     box.appendChild(el(`<div class="note err">${esc(data.error)}</div>`));
     // Errors stay open. A failure is not work to inspect on request; it is
     // something the reader has to know happened, and a collapsed panel reads
     // like a step that went fine.
     box.open = true;
     addCopy(box, () => data.error, "Copy the error message");
+  } else if (data && data.chart_type) {
+    renderChart(box, data);
   } else if (data && data.columns) {
     const n = data.rows.length;
     box.querySelector("summary").textContent =
@@ -497,6 +507,130 @@ function renderResult(body, raw) {
   body.appendChild(box);
 }
 
+const CHART_W = 560, CHART_H = 170,
+      CHART_PAD_L = 46, CHART_PAD_R = 10, CHART_PAD_T = 10, CHART_PAD_B = 34;
+
+/* Pure pixel geometry, kept separate from DOM construction so it can be
+   tested without a browser. `points` are plotted in the order given — never
+   sorted, never reordered, since that would be a second, silent rendering of
+   rows the accuracy instruction already requires be reproduced exactly.
+
+   The y range always includes zero (`Math.min(0, ...ys)` / `Math.max(0,
+   ...ys)`), so a bar's baseline is always the true zero line rather than the
+   lowest value in the set — a set of all-negative values would otherwise draw
+   its smallest (most negative) bar as flat and its largest as full height,
+   which looks like a comparison it is not. */
+function chartGeometry(points, width, height) {
+  const ys = points.map(p => p.y);
+  const yMin = Math.min(0, ...ys), yMax = Math.max(0, ...ys);
+  const range = (yMax - yMin) || 1;
+  const n = points.length;
+  const band = n ? width / n : width;
+  const valueY = v => height - ((v - yMin) / range) * height;
+  const zeroY = valueY(0);
+  const barWidth = Math.min(band * 0.6, 36);
+  return {
+    yMin, yMax, zeroY, band,
+    marks: points.map((p, i) => {
+      const cx = i * band + band / 2;
+      const py = valueY(p.y);
+      const top = Math.min(py, zeroY);
+      return { cx, py, barX: cx - barWidth / 2, barY: top, barWidth,
+               barHeight: Math.max(Math.abs(py - zeroY), 0.5) };
+    }),
+  };
+}
+
+function fmtChartNum(v) {
+  return Number.isInteger(v) ? v.toLocaleString()
+                              : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/* A chart is another rendering of the same rows the table above already
+   shows — drawn from `data.points`, which the tool built from the actual
+   query result, never from anything the model supplied directly. `title` is
+   the one field here that is unverified model prose rather than a real
+   column name or value, so it is escaped like any other model output and
+   styled as a caption (`.chartTitle`, same muted treatment as `.note`)
+   rather than like an axis label, which names a real column. */
+function renderChart(box, data) {
+  const n = data.points.length;
+  box.querySelector("summary").textContent =
+    `${data.chart_type} chart, ${n} point${n === 1 ? "" : "s"}`;
+  // Different from the table/SQL default: a chart was asked for by name, so
+  // it is the answer, not evidence to check on request. Collapsed, the model
+  // could say "see the chart above" and nobody would see one.
+  box.open = true;
+
+  const geo = chartGeometry(data.points, CHART_W, CHART_H);
+  const svgW = CHART_W + CHART_PAD_L + CHART_PAD_R;
+  const svgH = CHART_H + CHART_PAD_T + CHART_PAD_B;
+
+  const marks = data.chart_type === "line"
+    ? `<polyline points="${geo.marks.map(m => `${m.cx.toFixed(1)},${m.py.toFixed(1)}`).join(" ")}"
+        fill="none" stroke="var(--accent)" stroke-width="2"></polyline>` +
+      geo.marks.map(m =>
+        `<circle cx="${m.cx.toFixed(1)}" cy="${m.py.toFixed(1)}" r="2.5" fill="var(--accent)"></circle>`
+      ).join("")
+    : geo.marks.map(m =>
+        `<rect x="${m.barX.toFixed(1)}" y="${m.barY.toFixed(1)}" width="${m.barWidth.toFixed(1)}" ` +
+        `height="${m.barHeight.toFixed(1)}" rx="1.5" fill="var(--accent)"></rect>`
+      ).join("");
+
+  // Every 0 is real for an all-positive/all-negative set (the bottom or top
+  // border already reads as the baseline); only draw an interior dashed line
+  // when the data actually straddles it.
+  const zeroLine = (geo.zeroY > 0.5 && geo.zeroY < CHART_H - 0.5)
+    ? `<line x1="0" y1="${geo.zeroY.toFixed(1)}" x2="${CHART_W}" y2="${geo.zeroY.toFixed(1)}"
+        stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"></line>`
+    : "";
+
+  // At most ~10 x labels regardless of point count, so a fifty-point chart
+  // does not render fifty overlapping labels; the last category always shows.
+  const step = Math.max(1, Math.ceil(n / 10));
+  const xLabels = geo.marks.map((m, i) => {
+    if (i % step !== 0 && i !== n - 1) return "";
+    return `<text x="${m.cx.toFixed(1)}" y="${CHART_H + 14}" font-size="9" fill="var(--muted)"
+      text-anchor="end" transform="rotate(-40 ${m.cx.toFixed(1)} ${CHART_H + 14})"
+      >${esc(data.points[i].x)}</text>`;
+  }).join("");
+
+  const yTop = `<text x="-6" y="4" font-size="9" fill="var(--muted)" text-anchor="end"
+    >${esc(fmtChartNum(geo.yMax))}</text>`;
+  const yBottom = geo.yMin !== geo.yMax
+    ? `<text x="-6" y="${CHART_H}" font-size="9" fill="var(--muted)" text-anchor="end"
+        >${esc(fmtChartNum(geo.yMin))}</text>`
+    : "";
+
+  const svg = el(`
+    <svg viewBox="0 0 ${svgW} ${svgH}" class="chartSvg" role="img" aria-label="${esc(
+      (data.title ? data.title + ": " : "") + data.y_label + " by " + data.x_label)}">
+      <g transform="translate(${CHART_PAD_L},${CHART_PAD_T})">
+        <path d="M0,0 V${CHART_H} H${CHART_W}" fill="none" stroke="var(--line)" stroke-width="1"></path>
+        ${zeroLine}
+        ${marks}
+        ${xLabels}
+        ${yTop}${yBottom}
+        <text x="${CHART_W / 2}" y="${CHART_H + CHART_PAD_B - 2}" font-size="10" fill="var(--muted)"
+          text-anchor="middle">${esc(data.x_label)}</text>
+        <text x="${-CHART_PAD_L + 10}" y="${CHART_H / 2}" font-size="10" fill="var(--muted)"
+          text-anchor="middle" transform="rotate(-90 ${-CHART_PAD_L + 10} ${CHART_H / 2})"
+          >${esc(data.y_label)}</text>
+      </g>
+    </svg>`);
+
+  const wrap = el(`<div class="chartWrap"></div>`);
+  if (data.title) wrap.appendChild(el(`<div class="chartTitle">${esc(data.title)}</div>`));
+  wrap.appendChild(svg);
+  box.appendChild(wrap);
+  if (data.note) box.appendChild(el(`<div class="note">${esc(data.note)}</div>`));
+  // Same escaping as the table's copy button — a chart is two columns of the
+  // same rows, so it is copyable the same way, not with a second
+  // implementation of the quoting rules.
+  addCopy(box, () => toTSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
+    `Copy these ${n} point${n === 1 ? "" : "s"} for a spreadsheet`);
+}
+
 /* One event renderer for both a live stream and a replayed transcript.
 
    A restored conversation has to look exactly like a live one — same SQL
@@ -506,19 +640,28 @@ function renderResult(body, raw) {
    server stores them in the shape it streams. */
 function applyEvent(body, stream, ev) {
   const kind = ev.kind || ev.type;
+  const name = ev.name || "run_sql";     // missing on threads stored before render_chart existed
   if (kind === "text" || kind === "answer") {
     if (ev.text) stream.text(ev.text);
   } else if (kind === "tool_call") {
-    const box = el(
-      `<details class="trace"><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
-    addCopy(box, () => ev.sql, "Copy this SQL");
-    stream.block(box);
+    if (name === "run_sql") {
+      const box = el(
+        `<details class="trace"><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
+      addCopy(box, () => ev.sql, "Copy this SQL");
+      stream.block(box);
+    } else {
+      // No request "code" worth showing for a chart pick — the columns and
+      // type chosen are already implicit in the result that follows. Still
+      // close the current prose run, or trailing text glues onto stale text.
+      stream.clearNotice();
+      stream.endRun();
+    }
   } else if (kind === "notice") {
     stream.notice(ev.text);
   } else if (kind === "tool_result") {
     stream.clearNotice();
     stream.endRun();
-    renderResult(body, ev.result);
+    renderResult(body, ev.result, name);
   } else if (kind === "stripped_link") {
     stream.block(el(`<div class="note err">A link to <code>${esc(ev.text)}</code> was removed: no tool returned that URL.</div>`));
   } else if (kind === "error") {

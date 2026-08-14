@@ -71,7 +71,9 @@ substantial piece of work rather than a configuration flag.
 - **You already know SQL and the question is simple.** Write the query.
 - **You need governed metrics** — one agreed definition of "active customer"
   across a company. That is a semantic layer, and dbt or WrenAI do it properly.
-- **You want dashboards.** This answers questions; it does not draw charts.
+- **You want a dashboard.** This can draw a chart of one query's result on
+  request — the model picks a type and a column mapping, the app renders the
+  actual rows — but it does not build or maintain multi-chart dashboards.
 - **The answers do not need checking.** If nobody would act on a wrong number,
   the machinery here is overhead.
 
@@ -134,7 +136,11 @@ Built so far: the link allowlist (a streaming filter that strips URLs a tool
 never returned), the eval harness, the schema profiler, the runner, and the
 application. Two-phase collection exists only in `evals/` — it moved nothing
 across four measured configurations and costs an extra API call per turn, so it
-is not wired into the shipping runner.
+is not wired into the shipping runner. The application ships a second tool,
+`render_chart`: the model picks a chart type and which two columns of the last
+query result map to x and y; the application draws the chart from those actual
+rows. The model never supplies a data point, an SVG, or a series — the same
+"reference what a tool returned, never invent it" rule as the link allowlist.
 
 ## What has actually been measured
 

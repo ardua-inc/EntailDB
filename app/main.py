@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import tomllib
 import uuid
+from decimal import Decimal
 from importlib import metadata
 from typing import Any
 
@@ -23,7 +24,7 @@ from fidelity.runner import FidelityRunner, ToolResult
 
 from . import config, threads
 from . import connectors
-from .connectors import Connector
+from .connectors import Connector, QueryResult
 from . import providers
 
 app = FastAPI(title="EntailDB")
@@ -62,7 +63,8 @@ You are an analytics assistant. People ask you questions about the business and
 you answer them by querying the connected database with the tools available.
 
 Write in plain prose. Format results clearly. Be concise — the people asking are
-in the middle of their working day.
+in the middle of their working day. When a trend or a category comparison would
+be clearer as a chart, use render_chart.
 """
 
 
@@ -91,6 +93,151 @@ class SqlTool:
         result = self.connector.query(sql)
         self.calls.append({"sql": sql, "result": result})
         return ToolResult(result.to_json(), is_error=result.error is not None)
+
+
+class ChartTool:
+    """Draws a chart from the rows the most recent successful `run_sql` call
+    already returned this turn. The model chooses a chart type and which two
+    columns map to which axis; it supplies no data of its own — this tool
+    reads the real rows itself. Same reasoning as the link allowlist: a model
+    may reference what a tool returned and may not invent it.
+
+    `SqlTool` is built fresh per request (see `_answer`), so `.calls` cannot
+    hold anything from an earlier turn — "most recent successful query this
+    turn" is a property of that shape, not a rule this tool has to enforce.
+    """
+
+    name = "render_chart"
+    description = (
+        "Draw a bar or line chart from the rows returned by the most recent "
+        "successful run_sql call in this turn. Provide a chart_type and the "
+        "names of two columns from that result — one for x, one for y. This "
+        "tool reads the rows itself; it does not accept data points, and it "
+        "has no visibility into any query from an earlier turn."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "chart_type": {"type": "string", "enum": ["bar", "line"]},
+            "x_column": {"type": "string",
+                        "description": "A column name from the last query result."},
+            "y_column": {"type": "string",
+                        "description": "A numeric column name from the last query result."},
+            "title": {"type": "string",
+                      "description": "Optional caption. Not checked against the data."},
+        },
+        "required": ["chart_type", "x_column", "y_column"],
+    }
+
+    _TYPES = ("bar", "line")
+    # `bool` is deliberately excluded even though it is an `int` subclass —
+    # True/False are not a quantity to plot.
+    _NUMERIC = (int, float, Decimal)
+
+    def __init__(self, sql_tool: SqlTool) -> None:
+        self.sql_tool = sql_tool
+
+    def __call__(self, arguments: dict[str, Any]) -> ToolResult:
+        args = arguments or {}
+        chart_type = args.get("chart_type", "")
+        x_column = args.get("x_column", "")
+        y_column = args.get("y_column", "")
+        title = args.get("title", "")
+
+        if chart_type not in self._TYPES:
+            return self._refuse(
+                f"Unsupported chart type: {chart_type!r}. Use 'bar' or 'line'.")
+
+        result = self._latest_result()
+        if result is None:
+            return self._refuse(
+                "No successful query result to chart yet in this turn. Run a "
+                "query first.")
+
+        if x_column not in result.columns or y_column not in result.columns:
+            return self._refuse(
+                f"{x_column!r} and {y_column!r} must both be columns from the "
+                f"last query result: {result.columns}.")
+
+        # Walked in the rows' own order — never sorted, never reordered. The
+        # accuracy instruction's "reproduce rows exactly as returned" applies
+        # here just as it does to prose.
+        xi, yi = result.columns.index(x_column), result.columns.index(y_column)
+        points: list[dict[str, Any]] = []
+        skipped_null = 0
+        for row in result.rows:
+            y = row[yi]
+            if y is None:
+                # A real NULL in the data, not a model mistake — skipped and
+                # disclosed, not silently dropped.
+                skipped_null += 1
+                continue
+            if isinstance(y, bool) or not isinstance(y, self._NUMERIC):
+                # A wrong-type value is a column-selection mistake, not a
+                # data-quality gap: refuse the whole call rather than plot an
+                # unpredictable subset of rows for a reason nobody can see.
+                return self._refuse(
+                    f"Column {y_column!r} is not numeric (found a "
+                    f"{type(y).__name__} value); choose a numeric column for "
+                    "the y axis.")
+            x = row[xi]
+            points.append({"x": "NULL" if x is None else str(x), "y": float(y)})
+
+        if not points:
+            return self._refuse(f"No numeric values in {y_column!r} to chart.")
+
+        payload: dict[str, Any] = {
+            "chart_type": chart_type,
+            "x_label": x_column,
+            "y_label": y_column,
+            "points": points,
+            "rows_plotted": len(points),
+        }
+        if title:
+            payload["title"] = title
+        if result.truncated:
+            payload["total_rows_matched"] = result.total_rows
+        note = self._note(result, skipped_null, y_column)
+        if note:
+            payload["note"] = note
+        return ToolResult(json.dumps(payload))
+
+    def _latest_result(self) -> QueryResult | None:
+        """The most recent call this turn whose query succeeded.
+
+        Reads `self.sql_tool.calls` — the list `SqlTool` already accumulates —
+        rather than keeping a second copy of query history.
+        """
+        for entry in reversed(self.sql_tool.calls):
+            if entry["result"].error is None:
+                return entry["result"]
+        return None
+
+    @staticmethod
+    def _note(result: QueryResult, skipped_null: int, y_column: str) -> str:
+        """Disclosure text: the source's own preview-boundary wording, reused
+        rather than re-derived, plus how many rows had nothing to plot."""
+        parts: list[str] = []
+        if result.truncated:
+            if result.total_rows is None:
+                parts.append(
+                    f"Preview only: {len(result.rows)} rows are shown and "
+                    "more matched. The exact total could not be determined "
+                    "for this query — do not present these rows as the "
+                    "complete set.")
+            else:
+                parts.append(
+                    f"Preview only: {len(result.rows)} of {result.total_rows} "
+                    "matching rows are shown.")
+        if skipped_null:
+            parts.append(
+                f"{skipped_null} row{'s' if skipped_null != 1 else ''} with "
+                f"no value in {y_column!r} were left out.")
+        return " ".join(parts)
+
+    @staticmethod
+    def _refuse(message: str) -> ToolResult:
+        return ToolResult(json.dumps({"error": message}), is_error=True)
 
 
 def _connection(connection_id: str) -> config.Connection:
@@ -377,6 +524,7 @@ def _answer(settings: config.Settings, thread: threads.Thread,
 
     connector = Connector(conn.kind, conn.dsn(), conn.database)
     tool = SqlTool(connector)
+    chart_tool = ChartTool(tool)
 
     system = SYSTEM_PROMPT
     # The dialect note goes in before anything else: which product this is
@@ -397,7 +545,7 @@ def _answer(settings: config.Settings, thread: threads.Thread,
     runner = FidelityRunner(
         providers.build(profile.kind, model=profile.model, api_key=profile.key(),
                         base_url=profile.base_url, max_tokens=profile.max_tokens),
-        tools=[tool],
+        tools=[tool, chart_tool],
         system_prompt=system,
     )
 
@@ -416,12 +564,19 @@ def _answer(settings: config.Settings, thread: threads.Thread,
                     payload["text"] = event.text
                     answer.append(event.text)
                 elif event.type == "tool_call":
-                    payload["sql"] = event.arguments.get("query", "")
-                    threads.append_event(thread.id, "tool_call", sql=payload["sql"])
+                    payload["name"] = event.name
+                    # Only `run_sql` has "code" worth showing; a chart request
+                    # has nothing analogous, so no other tool grows a field
+                    # here just because this one needed "sql".
+                    if event.name == "run_sql":
+                        payload["sql"] = event.arguments.get("query", "")
+                    threads.append_event(thread.id, "tool_call", name=event.name,
+                                         sql=payload.get("sql", ""))
                 elif event.type == "tool_result":
+                    payload["name"] = event.name
                     payload["result"] = event.result
                     payload["is_error"] = event.is_error
-                    threads.append_event(thread.id, "tool_result",
+                    threads.append_event(thread.id, "tool_result", name=event.name,
                                          result=event.result,
                                          is_error=event.is_error)
                 elif event.type == "notice":

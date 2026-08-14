@@ -9,15 +9,21 @@ request has no way to be expressed at all. `test_a_client_cannot_supply_its_own
 _history` and its neighbours are what hold that shape in place; if someone adds
 a `messages` field back, they fail.
 
-The model is never called here. `/api/chat` is exercised only for the failures
-that happen before a provider is reached, because everything past that point is
-network I/O against Anthropic and belongs in the eval harness.
+A real model is never called here: `/api/chat` is exercised for the failures
+that happen before a provider is reached, plus (via a scripted fake provider,
+`_ScriptedProvider` below) the pure-Python event plumbing between the runner
+and the stream/storage — never for answer quality, which is network I/O
+against a real provider and belongs in the eval harness.
 """
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
+
+from fidelity.runner import ToolCall
 
 from app import config, main, threads
 
@@ -219,3 +225,76 @@ def test_a_claim_on_an_unknown_thread_is_never_taken(client):
     """404 happens before the claim, so a bad id cannot strand anything."""
     client.post("/api/chat", json={"thread_id": "abcdef12", "message": "hi"})
     assert threads.turn_in_flight("abcdef12") is False
+
+
+# ── tool-name plumbing ────────────────────────────────────────────────────
+#
+# `_answer()`'s event loop used to assume every tool call was `run_sql` — it
+# read `event.arguments["query"]` unconditionally and never stored which tool
+# had run at all. Fine while there was only one tool; silently wrong the
+# moment a second one (`render_chart`) existed, since a stored or streamed
+# event carrying no tool name is not distinguishable from one of the wrong
+# tool. These tests hold `event.name` end to end: runner -> SSE payload ->
+# stored thread event -> replay.
+
+class _ScriptedProvider:
+    """Requests `render_chart` once, then stops. A fake is the right call for
+    what these tests check — whether a tool's name survives the SSE/storage
+    plumbing, which is pure Python and needs no real model. See
+    `tests/test_runner.py`'s `ScriptedProvider` for the same reasoning
+    applied to the runner itself."""
+
+    def __init__(self) -> None:
+        self._fired = False
+
+    def stream_turn(self, system, messages, tools):
+        if not self._fired:
+            self._fired = True
+            yield ("tool_call", ToolCall(
+                id="c1", name="render_chart",
+                arguments={"chart_type": "bar", "x_column": "a", "y_column": "b"}))
+            return
+        yield ("text", "done")
+
+
+@pytest.fixture
+def scripted_profile(client, monkeypatch):
+    """A model profile whose provider is `_ScriptedProvider`, not a real one."""
+    client.post("/api/profiles", json={
+        "label": "test", "kind": "anthropic", "model": "test-model"})
+    monkeypatch.setattr(main.providers, "build", lambda *a, **k: _ScriptedProvider())
+
+
+def test_tool_call_and_tool_result_events_carry_the_tool_name(client, conn, scripted_profile):
+    thread_id = client.post("/api/threads", json={"connection_id": conn}).json()["id"]
+    res = client.post("/api/chat", json={"thread_id": thread_id, "message": "chart it"})
+    assert res.status_code == 200
+    events = [json.loads(line[len("data: "):]) for line in res.text.splitlines()
+             if line.startswith("data: ")]
+
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    tool_results = [e for e in events if e["type"] == "tool_result"]
+    assert tool_calls and tool_calls[0]["name"] == "render_chart"
+    assert tool_results and tool_results[0]["name"] == "render_chart"
+
+    stored = threads.load(thread_id)
+    stored_names = {e["kind"]: e.get("name") for e in stored.events
+                    if e["kind"] in ("tool_call", "tool_result")}
+    assert stored_names == {"tool_call": "render_chart", "tool_result": "render_chart"}
+
+
+def test_a_legacy_thread_event_without_a_name_still_replays(client, conn):
+    """Threads stored before `render_chart` existed have `tool_call`/
+    `tool_result` events with no `name` field at all. `Thread.messages()` must
+    stay unaffected — it never reads either kind, only `user` and `answer`."""
+    thread = threads.create(conn)
+    threads.append_event(thread.id, "user", text="how many orders?")
+    threads.append_event(thread.id, "tool_call", sql="SELECT 1")            # no "name"
+    threads.append_event(thread.id, "tool_result", result="{}", is_error=False)  # no "name"
+    threads.append_event(thread.id, "answer", text="There is 1.")
+
+    assert client.get(f"/api/threads/{thread.id}").status_code == 200
+    assert threads.load(thread.id).messages() == [
+        {"role": "user", "content": "how many orders?"},
+        {"role": "assistant", "content": "There is 1."},
+    ]

@@ -2,6 +2,30 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.34] - 2026-08-14
+
+Charts. A second tool, `render_chart`, next to `run_sql`.
+
+The constraint from the 0.1.33 backlog note, built exactly as specified: the
+model chooses a chart type and which two columns of the last query result map
+to x and y; `render_chart` reads the real rows itself and refuses rather than
+plot anything it can't verify — an unknown column, a non-numeric y column, or
+no successful query yet this turn. NULLs in the y column are skipped and the
+count disclosed, never silently dropped; a truncated source result's preview
+boundary is disclosed the same way the table already does. The model never
+supplies a data point, an SVG, or a series.
+
+Rendering is an inline SVG in `app/static/index.html` — no new dependency, no
+chart library, consistent with the rest of the page. Bar and line only; a pie
+chart implies "these values sum to a meaningful whole," a claim this tool has
+no way to verify.
+
+One incidental fix along the way: the SSE/storage event plumbing in `_answer()`
+assumed every tool call was `run_sql` and never recorded which tool had run at
+all. A second tool made that visible rather than merely wrong — `tool_call`/
+`tool_result` events now carry the tool's name end to end (stream, storage,
+replay), with old stored threads defaulting to `run_sql` for compatibility.
+
 ## [0.1.33] - 2026-08-12
 
 Two backlog items: charts and CSV download.

@@ -445,7 +445,11 @@ known to be wanted rather than guessed at. Neither is a straight port: each
 touches the entailment claim, and getting that wrong would put a fabrication
 somewhere harder to check than prose.
 
-### 3. Charts
+### 3. Charts — ~~backlog~~ done in 0.1.34
+
+Shipped as a second tool, `render_chart`, next to `SqlTool` in `app/main.py`,
+under exactly the constraint below. `tests/test_chart_tool.py` covers the
+validation; `tests/test_markdown_render.py` covers the pixel geometry.
 
 A chart is another rendering of the rows, so it inherits the whole thesis. The
 failure mode is specific and worse than a bad-looking graph: a chart whose bars
