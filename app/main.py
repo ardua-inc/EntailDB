@@ -24,7 +24,7 @@ from fidelity.runner import FidelityRunner, ToolResult
 
 from . import config, threads
 from . import connectors
-from .connectors import Connector, QueryResult
+from .connectors import PREVIEW_ROWS, Connector, QueryResult
 from . import providers
 
 app = FastAPI(title="EntailDB")
@@ -65,7 +65,34 @@ you answer them by querying the connected database with the tools available.
 Write in plain prose. Format results clearly. Be concise — the people asking are
 in the middle of their working day. When a trend or a category comparison would
 be clearer as a chart, use render_chart.
+
+Every table or chart you produce is already shown to the person with copy and
+CSV-download controls built into the interface, automatically, on every result
+— you do not have a tool that builds a file, and you do not need one. If asked
+for "a downloadable file" or "an export," tell them to use the download control
+on the result already shown rather than trying to generate one yourself, and do
+not paste a large result into your answer as rows of text.
 """
+
+
+# The hard ceiling on `max_rows`, below. Application policy, not connector
+# policy — the connector would happily fetch however many rows it's asked
+# for, and "how much a model may ask for in one call" is a decision about
+# what a tool-using model is, which is exactly the thing DESIGN.md keeps
+# out of the library layer.
+MAX_PREVIEW_ROWS = 1000
+
+
+def _clamp_preview(max_rows: Any) -> int:
+    """The requested preview size, bounded so "give me all rows" on a
+    30M-row table can never become an unbounded fetch. Anything unusable —
+    missing, non-numeric, zero, negative — falls back to the ordinary
+    default rather than being treated as a request for more."""
+    try:
+        requested = int(max_rows)
+    except (TypeError, ValueError):
+        return PREVIEW_ROWS
+    return min(requested, MAX_PREVIEW_ROWS) if requested > 0 else PREVIEW_ROWS
 
 
 class SqlTool:
@@ -79,8 +106,22 @@ class SqlTool:
     )
     input_schema = {
         "type": "object",
-        "properties": {"query": {"type": "string",
-                                 "description": "A read-only SQL SELECT statement."}},
+        "properties": {
+            "query": {"type": "string",
+                      "description": "A read-only SQL SELECT statement."},
+            "max_rows": {
+                "type": "integer",
+                "description": (
+                    f"How many rows to return, up to {MAX_PREVIEW_ROWS}. "
+                    f"Defaults to {PREVIEW_ROWS} if omitted. Only raise this "
+                    "when the person explicitly asks for more than the "
+                    "default preview, or for all of a result already known "
+                    "to be larger than that — prefer pointing them at the "
+                    "CSV download on the result above over pasting many "
+                    "rows into your answer."
+                ),
+            },
+        },
         "required": ["query"],
     }
 
@@ -89,8 +130,10 @@ class SqlTool:
         self.calls: list[dict[str, Any]] = []
 
     def __call__(self, arguments: dict[str, Any]) -> ToolResult:
-        sql = (arguments or {}).get("query", "")
-        result = self.connector.query(sql)
+        args = arguments or {}
+        sql = args.get("query", "")
+        preview = _clamp_preview(args.get("max_rows"))
+        result = self.connector.query(sql, preview=preview)
         self.calls.append({"sql": sql, "result": result})
         return ToolResult(result.to_json(), is_error=result.error is not None)
 

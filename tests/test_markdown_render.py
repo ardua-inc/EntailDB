@@ -52,9 +52,11 @@ def _helpers_source() -> str:
 
 
 def _tsv_source() -> str:
-    """Lift `toTSV` out of the page."""
+    """Lift `toDelimited`, `toTSV`, `toCSV` and `csvFilename` out of the page
+    — one function shared by both exports, so a test against either exercises
+    the same escaping the other one relies on."""
     page = PAGE.read_text()
-    start = page.index("function toTSV(")
+    start = page.index("function toDelimited(")
     return page[start:page.index("function copyText(")]
 
 
@@ -69,9 +71,10 @@ def _chart_source() -> str:
 
 
 def _stream_source() -> str:
-    """Lift `createStreamRenderer` out of the page, with what it depends on."""
+    """Lift `createStreamRenderer` out of the page, with what it depends on —
+    including `STREAM_RENDER_CHARS`, the batching threshold it reads."""
     page = PAGE.read_text()
-    start = page.index("function createStreamRenderer(")
+    start = page.index("const STREAM_RENDER_CHARS")
     end = page.index("/* Results render as a real table")
     return _renderer_source() + page[start:end]
 
@@ -227,8 +230,16 @@ def test_a_representative_answer_renders_without_stray_markup():
 STREAM_HARNESS = """
 // A DOM stub small enough to be obviously correct: the renderer only ever
 // creates a div, sets className/innerHTML, and appends to a parent.
+// `innerHTML` is a counted setter -- `renders` -- so a test can tell how many
+// times the batching logic actually re-rendered, not just what the final
+// content was.
 const makeDoc = () => ({ createElement: () => {
-  const node = { tagName: "DIV", className: "", innerHTML: "", textContent: "" };
+  let html = "";
+  const node = { tagName: "DIV", className: "", textContent: "", renders: 0 };
+  Object.defineProperty(node, "innerHTML", {
+    get: () => html,
+    set: v => { html = v; node.renders++; },
+  });
   node.remove = () => { const i = body.kids.indexOf(node); if (i >= 0) body.kids.splice(i, 1); };
   return node;
 } });
@@ -240,12 +251,13 @@ for (const ev of JSON.parse(process.argv[1])) {
   else if (ev.k === "block") stream.block({ tagName: "DETAILS", block: ev.v });
   else if (ev.k === "notice") stream.notice(ev.v);
   else if (ev.k === "fail") stream.fail(ev.v);
+  else if (ev.k === "end") stream.endRun();
 }
 process.stdout.write(JSON.stringify({
   answer: stream.answer,
   kids: body.kids.map(n => n.tagName === "DETAILS"
     ? { block: n.block }
-    : { prose: n.innerHTML + (n.textContent || "") }),
+    : { prose: n.innerHTML + (n.textContent || ""), renders: n.renders }),
 }));
 """
 
@@ -281,6 +293,46 @@ def test_streaming_deltas_re_render_rather_than_append():
     assert len(out["kids"]) == 1
     assert "<table>" in out["kids"][0]["prose"]
     assert out["kids"][0]["prose"].count("<table>") == 1
+
+
+# ── batching: the freeze this guards ────────────────────────────────────────
+#
+# A real answer streamed as 692 markdown-table rows in small chunks froze the
+# tab, because `text()` used to re-parse and re-render the entire growing
+# string on every single delta with no threshold. These tests use a plain
+# repeated character rather than a table, since what's under test is *how
+# many times* rendering happens, not what gets rendered.
+
+def test_a_short_answer_still_renders_every_delta():
+    """Below the batching threshold, behaviour is unchanged from before this
+    existed: every delta renders immediately."""
+    events = [{"k": "text", "v": "hi "} for _ in range(5)]
+    out = play(events)
+    assert out["kids"][0]["renders"] == 5
+
+
+def test_a_long_answer_batches_renders_instead_of_one_per_delta():
+    events = [{"k": "text", "v": "x" * 100} for _ in range(55)]  # 5,500 chars
+    out = play(events)
+    assert 0 < out["kids"][0]["renders"] < 55
+
+
+def test_a_long_answer_is_incomplete_before_the_turn_ends():
+    """Proves the batching above is real, not merely fewer renders that each
+    happen to be complete: without a final flush, the last un-rendered chunk
+    is still missing."""
+    events = [{"k": "text", "v": "x" * 100} for _ in range(55)]
+    out = play(events)
+    assert out["kids"][0]["prose"].count("x") < 5500
+
+
+def test_a_long_answer_is_complete_once_the_turn_ends():
+    """The flush this project's own `applyEvent` triggers on the server's
+    `"done"` event — simulated here as `{"k": "end"}`, which calls the same
+    `endRun()` that event routes to."""
+    events = [{"k": "text", "v": "x" * 100} for _ in range(55)] + [{"k": "end"}]
+    out = play(events)
+    assert out["kids"][0]["prose"].count("x") == 5500
 
 
 def test_prose_before_and_after_a_block_are_separate_elements():
@@ -382,6 +434,16 @@ def test_a_replayed_transcript_uses_the_same_renderer_as_a_live_one():
     assert send.count("details class=\"trace\"") == 0
 
 
+def test_the_done_event_flushes_the_stream():
+    """The server sends `{"type": "done"}` as the last event of every turn;
+    without a handler for it, a long answer's final batched-but-unrendered
+    chunk had nothing to trigger its flush."""
+    page = PAGE.read_text()
+    apply_fn = page[page.index("function applyEvent("):page.index("function replay(")]
+    done_branch = apply_fn[apply_fn.index('kind === "done"'):]
+    assert "stream.endRun()" in done_branch
+
+
 def test_the_version_is_fetched_at_startup_not_inside_a_handler():
     """A scripted edit once spliced this into the Settings click handler, so
     the build number only appeared after opening Settings. Asserting it sits at
@@ -464,6 +526,98 @@ def test_booleans_survive():
     assert tsv(["ok"], [[True], [False]]).split("\n")[1:] == ["true", "false"]
 
 
+# ── CSV download: shares toDelimited with the clipboard, must not drift ────
+
+def csv(columns: list, rows: list) -> str:
+    script = (
+        _tsv_source()
+        + "\nconst [c, r] = JSON.parse(process.argv[1]);"
+        + "\nprocess.stdout.write(toCSV(c, r));"
+    )
+    done = subprocess.run(
+        ["node", "-e", script, json.dumps([columns, rows])],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def filename(base: str, n: int, total_matched) -> str:
+    script = (
+        _tsv_source()
+        + "\nconst [b, n, t] = JSON.parse(process.argv[1]);"
+        + "\nprocess.stdout.write(csvFilename(b, n, t));"
+    )
+    done = subprocess.run(
+        ["node", "-e", script, json.dumps([base, n, total_matched])],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def test_rows_are_comma_separated_with_a_header():
+    out = csv(["id", "city"], [[1, "Lethbridge"], [2, "Woodridge"]])
+    assert out == "id,city\n1,Lethbridge\n2,Woodridge"
+
+
+def test_a_value_containing_a_comma_is_quoted():
+    """The CSV analogue of the tab-quoting test above: unquoted, one stray
+    comma is indistinguishable from a real column boundary."""
+    out = csv(["a", "b"], [["Lethbridge, AB", "z"]])
+    assert out.split("\n")[1] == '"Lethbridge, AB",z'
+
+
+def test_a_value_containing_a_newline_is_quoted_in_csv():
+    out = csv(["addr"], [["12 High St\nApt 4"]])
+    assert out.split("\n", 1)[1].startswith('"12 High St')
+    assert out.rstrip().endswith('Apt 4"')
+
+
+def test_internal_quotes_are_doubled_in_csv():
+    out = csv(["note"], [['he said "hi"']])
+    assert out.split("\n")[1] == '"he said ""hi"""'
+
+
+def test_null_is_copied_as_shown_rather_than_blanked_in_csv():
+    out = csv(["a", "b"], [[None, ""]])
+    assert out.split("\n")[1] == "NULL,"
+
+
+def test_numbers_are_not_reformatted_in_csv():
+    out = csv(["amount"], [["91427.60"], ["0.99"], ["1e10"]])
+    assert out.split("\n")[1:] == ["91427.60", "0.99", "1e10"]
+
+
+def test_booleans_survive_csv():
+    assert csv(["ok"], [[True], [False]]).split("\n")[1:] == ["true", "false"]
+
+
+def test_a_value_that_looks_like_a_formula_is_written_verbatim():
+    """The decision recorded in `toDelimited`'s docstring, pinned as a real
+    test rather than left as a comment someone could contradict later: this
+    project's rule against silently changing a value on its way out
+    (`NULL` stays `NULL`, never blanked) applies here too. No `'` prefix, no
+    rewriting — a value that happens to start with `=`/`+`/`-`/`@` is not
+    this file's business to launder."""
+    out = csv(["cell"], [["=cmd|'/c calc'!A0"], ["-42"], ["+1"], ["@handle"]])
+    assert out.split("\n")[1:] == [
+        "=cmd|'/c calc'!A0", "-42", "+1", "@handle",
+    ]
+
+
+def test_csv_filename_is_plain_when_the_result_was_not_truncated():
+    assert filename("entaildb-result", 4, None) == "entaildb-result.csv"
+    assert filename("entaildb-result", 4, 4) == "entaildb-result.csv"
+
+
+def test_csv_filename_names_the_preview_boundary_when_truncated():
+    """The actual remediation the backlog asked for: a downloaded file is
+    read later by someone who may never see the notice above the table it
+    came from, so the boundary has to live in the filename."""
+    assert filename("entaildb-result", 50, 4312) == "entaildb-result-preview-50-of-4312.csv"
+
+
 # ── chart geometry ────────────────────────────────────────────────────────
 
 def geometry(points: list, width: int = 560, height: int = 170) -> dict:
@@ -539,6 +693,32 @@ def test_the_copy_control_suppresses_the_summary_toggle():
     assert "e.stopPropagation()" in handler
 
 
+def test_every_trace_panel_offers_a_download_control():
+    """Same guard as the copy control, for the CSV download button added
+    alongside it — a new panel type that copies but can't be saved to disk
+    would be an inconsistency, same as one that can't be copied."""
+    page = PAGE.read_text()
+    script = page[page.index("<script>"):]
+    built = script.count('<details class="trace"')
+    wired = script.count("addDownload(")
+    assert built > 0
+    assert wired >= built, f"{built} trace panels built but only {wired} addDownload calls"
+
+
+def test_the_download_control_suppresses_the_summary_toggle():
+    page = PAGE.read_text()
+    handler = page[page.index("function addDownload("):page.index("/* Results render")]
+    assert "e.preventDefault()" in handler
+    assert "e.stopPropagation()" in handler
+
+
+def test_the_table_download_reuses_toCSV():
+    """Same reuse guard as the chart test below, for the table branch."""
+    page = PAGE.read_text()
+    result_fn = page[page.index("function renderResult("):page.index("const CHART_W")]
+    assert "toCSV(" in result_fn
+
+
 def test_the_chart_copy_button_reuses_toTSV():
     """The backlog note this guards: 'reuse the escaping already written for
     copy-to-clipboard... a second implementation would drift.' A chart is two
@@ -546,6 +726,12 @@ def test_the_chart_copy_button_reuses_toTSV():
     page = PAGE.read_text()
     chart_fn = page[page.index("function renderChart("):page.index("/* One event renderer")]
     assert "toTSV(" in chart_fn
+
+
+def test_the_chart_download_reuses_toCSV():
+    page = PAGE.read_text()
+    chart_fn = page[page.index("function renderChart("):page.index("/* One event renderer")]
+    assert "toCSV(" in chart_fn
 
 
 def test_the_chart_title_is_escaped():
@@ -562,7 +748,7 @@ ESSENTIAL = [
     "startDraft", "refreshThreads", "renderThreads", "openMostRecentOrDraft",
     "renderResult", "createStreamRenderer", "addCopy", "md", "toTSV", "api",
     "whenLabel", "selectedAfterReload", "renderProfiles", "showActiveModel",
-    "renderChart", "chartGeometry",
+    "renderChart", "chartGeometry", "addDownload", "toCSV", "csvFilename",
 ]
 
 

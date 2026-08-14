@@ -473,7 +473,17 @@ of them nobody can see); a chart over a truncated preview must say so, exactly
 as the table does; and no chart library that loads anything off-host, which the
 page's CSP forbids anyway.
 
-### 4. CSV download
+### 4. CSV download — ~~backlog~~ done in 0.1.35
+
+Client-side only: downloads exactly the rows/points already fetched and
+rendered (the bounded preview, or the full set when not truncated), sharing
+one escaping implementation (`toDelimited`) with the existing copy-to-
+clipboard button. Deliberately not the "re-run the query unbounded" option
+below — that would reintroduce the exact risk `PREVIEW_ROWS` exists to
+prevent, and a replayed historical thread has no open connection to re-query
+against anyway. CSV formula-injection escaping was considered and explicitly
+declined (see README's Security section) — it would be the first place either
+export silently alters a value, which contradicts the project's own rule.
 
 Smaller, with one trap that is this project's own failure in file form.
 
@@ -491,3 +501,28 @@ next week by someone who never saw the preview notice. So:
   implementation would drift.
 - The same question the copy button already answers has to be answered again
   here, and identically.
+
+### Lesson captured (0.1.36)
+
+Shipping the CSV download did not make the model aware it existed. Asked for
+"a downloadable export," it said *"I don't have a tool that can generate a
+downloadable file... you'd need to copy yourself,"* which is true of its own
+tools and false of the application — every result already carries that
+control. Told to print all 692 rows instead, it ran fourteen separate 50-row
+queries to assemble them (`run_sql` had no way to ask for more than the
+hard-coded preview), then streaming that back as one markdown table froze the
+tab: `text()` re-parsed and re-rendered the *entire* growing answer on every
+delta, unbounded, and a ~45KB answer streamed as hundreds of small chunks was
+hundreds of full re-parses of a growing string.
+
+None of this was a fabrication in the sense this project usually measures —
+nothing invented was stated as fact. But it is the same shape of gap: a
+capability was added without telling the one actor who needed to know it
+existed, and the fallback path that gap forced the model into had a real,
+separate bug behind it that nothing had exercised before. Fixed in 0.1.36:
+the system prompt now states the download control exists; `run_sql` accepts a
+bounded `max_rows` override so "print everything" is one call, not fourteen;
+and the stream renderer batches re-renders by accumulated character count
+instead of re-rendering on every delta. `tests/test_sql_tool.py` and the
+extended streaming tests in `tests/test_markdown_render.py` are the first
+dedicated coverage either `SqlTool` or the render-batching behavior has had.

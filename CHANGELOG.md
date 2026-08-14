@@ -2,6 +2,66 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.36] - 2026-08-14
+
+Three fixes from one real conversation against a 692-row airports table.
+
+**The model didn't know the CSV download existed.** Asked for "a downloadable
+export," it said it had no way to produce one and offered to paste rows into
+the chat instead — true of its own tools, false of the application, which
+already puts a download control on every result. `SYSTEM_PROMPT` now says so.
+
+**`run_sql` had no way to ask for more than the 50-row default preview.**
+Told to print all 692 rows, the model ran fourteen separate paginated queries
+to assemble them. `run_sql` now accepts an optional `max_rows`, clamped to a
+hard ceiling (`MAX_PREVIEW_ROWS = 1000`) so "give me everything" on a
+30-million-row table can never become an unbounded fetch — the ceiling lives
+in `app/main.py`, not the connector layer, because it's a decision about what
+a tool-using model may ask for, not about the database.
+
+**Streaming that assembled answer froze the tab.** `createStreamRenderer`'s
+`text()` re-parsed and re-rendered the entire accumulated markdown on every
+delta with no threshold — harmless for a normal answer, hundreds of full
+re-parses of a growing ~45KB string for that one. Re-rendering is now batched
+by accumulated character count above a threshold (unchanged below it, which
+covers the overwhelming majority of answers), with a flush wired to the
+`"done"` SSE event the server already sent and the client already silently
+ignored. Reproduced directly against a reconstructed 692-row/45KB table
+streamed as ~7,500 realistic small deltas: 355 renders instead of 7,564,
+complete in 7ms.
+
+The first two fixes make the third one's trigger far less likely; the third
+fixes the underlying renderer regardless, since any sufficiently long
+streamed answer could have hit it. First dedicated test coverage for both
+`SqlTool` (`tests/test_sql_tool.py`) and the stream renderer's batching
+behavior.
+
+## [0.1.35] - 2026-08-14
+
+CSV download, next to the existing copy-to-clipboard on every result table
+and chart.
+
+Client-side only, of exactly the rows already fetched and rendered — the
+bounded preview, or the full set when the query wasn't truncated. Deliberately
+not the "re-run the query unbounded" option the backlog also considered: that
+would reintroduce the exact risk `PREVIEW_ROWS` exists to prevent, and a
+replayed historical thread has no open connection to re-query against anyway.
+A truncated result's filename names the boundary directly
+(`entaildb-result-preview-50-of-4312.csv`) rather than downloading a partial
+file that reads as complete once it's on disk.
+
+`toTSV` is now `toDelimited(columns, rows, delimiter)` underneath, with `toTSV`
+and the new `toCSV` as thin wrappers — one escaping implementation shared by
+both exports, per the backlog's own instruction not to let a second
+implementation drift from the first.
+
+Considered and declined: escaping CSV formula injection (prefixing a cell
+starting with `=`/`+`/`-`/`@` with `'`). It can't distinguish an actual formula
+from an ordinary negative number, so it would silently rewrite values — the
+first place either export would do that, contradicting the rule that's kept
+`NULL` written as `NULL` rather than blanked since `toTSV` was built. Recorded
+as known, considered state in README's Security section, not silently omitted.
+
 ## [0.1.34] - 2026-08-14
 
 Charts. A second tool, `render_chart`, next to `run_sql`.

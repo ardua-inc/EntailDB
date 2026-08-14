@@ -350,8 +350,20 @@ function selectedAfterReload(currentValue, connections) {
    `proseEl().innerHTML = md(runText)` evaluates its left side first — so the
    opening delta was cleared before `md` ever saw it. Every answer silently
    lost its first word. `endRun` owns the reset now. */
+/* Below this many accumulated characters, every delta re-renders immediately
+   — unchanged from before this threshold existed, and true of the large
+   majority of answers. Above it, re-rendering is batched by character count
+   rather than by delta count. `text()` used to re-parse and re-render the
+   *entire* growing markdown string on every single delta with no threshold at
+   all: harmless for a short answer, but a ~45KB answer (692 rows, pasted into
+   prose because the model didn't know a CSV download already existed for the
+   same data) streamed as hundreds of small chunks meant hundreds of full
+   re-parses of a growing string — the tab freezing partway through was that,
+   not a chart or a download bug. */
+const STREAM_RENDER_CHARS = 2000;
+
 function createStreamRenderer(body, doc) {
-  let run = null, runText = "", answer = "", notice = null;
+  let run = null, runText = "", answer = "", notice = null, renderedLength = 0;
 
   const open = () => {
     if (!run) {
@@ -378,9 +390,22 @@ function createStreamRenderer(body, doc) {
     },
     text(t) {
       this.clearNotice();
-      answer += t; runText += t; open().innerHTML = md(runText);
+      answer += t; runText += t;
+      const el = open();
+      if (runText.length < STREAM_RENDER_CHARS ||
+          runText.length - renderedLength >= STREAM_RENDER_CHARS) {
+        el.innerHTML = md(runText);
+        renderedLength = runText.length;
+      }
     },
-    endRun() { run = null; runText = ""; },
+    // Flushes whatever a batched render above left un-rendered, so a run
+    // that ends mid-batch never loses its tail — the same reason `block()`
+    // and `notice()` already route through this rather than resetting state
+    // directly.
+    endRun() {
+      if (run && renderedLength < runText.length) run.innerHTML = md(runText);
+      run = null; runText = ""; renderedLength = 0;
+    },
     block(node) { this.clearNotice(); this.endRun(); body.appendChild(node); },
     fail(msg) { open().innerHTML = `<span class="err">${esc(msg)}</span>`; },
     get answer() { return answer; },
@@ -394,25 +419,52 @@ const ICON_COPY = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
 const ICON_DONE = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
   stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
   <polyline points="20 6 9 17 4 12"/></svg>`;
+const ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>`;
 
-/* Tab-separated, because that is what a spreadsheet expects from the
-   clipboard. Values containing a tab, newline or quote are wrapped in double
-   quotes with internal quotes doubled — the convention Excel and Sheets parse
-   — otherwise one address field with a newline in it silently shifts every
-   column to its right.
+/* Shared by the clipboard copy (TSV) and the CSV download: one escaping
+   implementation for both, so the rules argued out for the first never drift
+   from the second. A value containing the delimiter, a newline or a quote is
+   wrapped in double quotes with internal quotes doubled — the convention
+   Excel and Sheets parse — otherwise one address field with a newline in it
+   silently shifts every column to its right.
 
-   NULL is copied as the literal `NULL`, matching what the table displays. An
-   empty cell would paste more tidily, but it would make a NULL
-   indistinguishable from an empty string, and quietly changing values on the
-   way to the clipboard is the same class of error this project exists to
-   prevent. */
-function toTSV(columns, rows) {
+   NULL is written as the literal `NULL`, matching what the table displays. An
+   empty cell would read more tidily, but it would make a NULL
+   indistinguishable from an empty string, and quietly changing a value on its
+   way out is the same class of error this project exists to prevent.
+
+   That rule is deliberately not relaxed for CSV's own well-known risk: a text
+   cell starting with `=`, `+`, `-` or `@` can be read as a formula by Excel
+   when the file is opened directly. The standard mitigation prefixes such
+   cells with `'`, but it cannot distinguish an actual formula from an
+   ordinary negative number or an `@`-leading value, so it would silently
+   rewrite those too — exactly what the NULL rule above refuses to do. Left
+   alone here, on purpose, for both exports; the risk already exists via
+   copy-and-paste into a spreadsheet, and is a property of the connected
+   database's own write access, not of this file. */
+function toDelimited(columns, rows, delimiter) {
+  const needsQuote = new RegExp(`[${delimiter}\\n\\r"]`);
   const cell = v => {
     const t = v === null ? "NULL" : String(v);
-    return /[\t\n\r"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    return needsQuote.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
-  return [columns.map(cell).join("\t"),
-          ...rows.map(r => r.map(cell).join("\t"))].join("\n");
+  return [columns.map(cell).join(delimiter),
+          ...rows.map(r => r.map(cell).join(delimiter))].join("\n");
+}
+function toTSV(columns, rows) { return toDelimited(columns, rows, "\t"); }
+function toCSV(columns, rows) { return toDelimited(columns, rows, ","); }
+
+/* The preview boundary has to live in the filename, not just the page: a
+   downloaded file is read later, by someone who may never see the notice
+   above the table it came from. `n` of `totalMatched` says so up front,
+   the same "name it for what it is" rule `MEASUREMENT.md`'s own defects
+   kept teaching this project the hard way. */
+function csvFilename(base, n, totalMatched) {
+  return totalMatched && totalMatched > n
+    ? `${base}-preview-${n}-of-${totalMatched}.csv`
+    : `${base}.csv`;
 }
 
 /* `navigator.clipboard` needs a secure context; http://127.0.0.1 counts as
@@ -459,6 +511,33 @@ function addCopy(box, getText, title) {
   return btn;
 }
 
+/* A second button in the same summary bar, same suppression as `addCopy` and
+   the same reason. Unlike copy, a downloaded file is read later rather than
+   pasted right away — the object URL is what makes `<a download>` work
+   without a server round trip, and it is revoked immediately after the click
+   is dispatched, once the browser has already queued the save. */
+function addDownload(box, getFilename, getText, title) {
+  const btn = el(`<button class="copy" type="button"></button>`);
+  btn.innerHTML = ICON_DOWNLOAD;
+  btn.title = title;
+  btn.setAttribute("aria-label", title);
+  btn.onclick = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const blob = new Blob([getText()], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = getFilename();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+  box.querySelector("summary").appendChild(btn);
+  return btn;
+}
+
 /* Results render as a real table, not a JSON blob. The point of showing the
    tool result is that a person can actually check the answer against it.
 
@@ -496,6 +575,12 @@ function renderResult(body, raw, name) {
       data.total_rows_matched && data.total_rows_matched > n
         ? `Copy these ${n} rows for a spreadsheet — preview only, ${data.total_rows_matched} matched`
         : `Copy ${n} row${n === 1 ? "" : "s"} for a spreadsheet`);
+    addDownload(box,
+      () => csvFilename("entaildb-result", n, data.total_rows_matched),
+      () => toCSV(data.columns, data.rows),
+      data.total_rows_matched && data.total_rows_matched > n
+        ? `Download these ${n} rows as CSV — preview only, ${data.total_rows_matched} matched`
+        : `Download ${n} row${n === 1 ? "" : "s"} as CSV`);
     // Collapsed. The summary already carries what a reader needs to notice at
     // a glance -- the row count, and "50 of 4312" when it is a preview -- so
     // the answer stays readable and the evidence is one click away rather than
@@ -629,6 +714,10 @@ function renderChart(box, data) {
   // implementation of the quoting rules.
   addCopy(box, () => toTSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
     `Copy these ${n} point${n === 1 ? "" : "s"} for a spreadsheet`);
+  addDownload(box,
+    () => csvFilename("entaildb-chart", n, data.total_rows_matched),
+    () => toCSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
+    `Download these ${n} point${n === 1 ? "" : "s"} as CSV`);
 }
 
 /* One event renderer for both a live stream and a replayed transcript.
@@ -666,6 +755,11 @@ function applyEvent(body, stream, ev) {
     stream.block(el(`<div class="note err">A link to <code>${esc(ev.text)}</code> was removed: no tool returned that URL.</div>`));
   } else if (kind === "error") {
     stream.block(el(`<div class="note err">${esc(ev.text)}</div>`));
+  } else if (kind === "done") {
+    // The turn's last event, live or replayed. Flushes whatever the render
+    // batching above left pending — without this, a long answer's final
+    // partial chunk could sit un-rendered once streaming stops.
+    stream.endRun();
   }
 }
 

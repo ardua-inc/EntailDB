@@ -141,6 +141,10 @@ is not wired into the shipping runner. The application ships a second tool,
 query result map to x and y; the application draws the chart from those actual
 rows. The model never supplies a data point, an SVG, or a series — the same
 "reference what a tool returned, never invent it" rule as the link allowlist.
+Every result table and chart also offers a CSV download alongside the existing
+copy-to-clipboard, of exactly the rows already fetched and shown — a truncated
+result's filename says so (`…-preview-50-of-4312.csv`) rather than downloading
+a partial result that reads as complete once it is sitting on disk.
 
 ## What has actually been measured
 
@@ -334,6 +338,16 @@ the store. That protects the file, not the endpoint — it is not a substitute f
 the authentication this app still does not have. `app/config.py` says so in its own docstring. Queries are gated to
 read-only statements, and SQLite connections are additionally opened `mode=ro`
 at the driver level.
+
+**Copy-to-clipboard and CSV download do not escape CSV formula injection.** A
+text cell whose content starts with `=`, `+`, `-` or `@` can be read as a
+formula by Excel or Sheets if the exported data is opened directly. The
+standard mitigation prefixes such cells with `'`, but it cannot tell an actual
+formula from an ordinary negative number, so it would silently rewrite values
+— exactly what this project's own rule against altering exported data refuses
+to do (`NULL` is written as `NULL`, never blanked, for the same reason). Left
+unmitigated on purpose. The risk is a property of what the connected database
+will let get written into it, not of this application.
 
 ## Running the evaluation
 
