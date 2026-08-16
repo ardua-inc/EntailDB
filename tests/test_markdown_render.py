@@ -671,6 +671,67 @@ def test_points_are_plotted_in_the_given_order():
     assert xs == sorted(xs)  # strictly left-to-right in input order, not by y
 
 
+# ── pie geometry ─────────────────────────────────────────────────────────
+
+def pie(points: list, cx: float = 80, cy: float = 80, r: float = 70) -> dict:
+    script = (
+        _chart_source()
+        + "\nconst [pts, cx, cy, r] = JSON.parse(process.argv[1]);"
+        + "\nprocess.stdout.write(JSON.stringify(pieGeometry(pts, cx, cy, r)));"
+    )
+    done = subprocess.run(
+        ["node", "-e", script, json.dumps([points, cx, cy, r])],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_slice_angles_sum_to_a_full_circle():
+    geo = pie([{"x": "a", "y": 1}, {"x": "b", "y": 2}, {"x": "c", "y": 3}])
+    swept = sum(s["endAngle"] - s["startAngle"] for s in geo["slices"])
+    assert swept == pytest.approx(2 * 3.14159265358979, rel=1e-6)
+
+
+def test_slice_shares_match_the_real_value_ratios():
+    geo = pie([{"x": "a", "y": 1}, {"x": "b", "y": 3}])
+    assert geo["slices"][0]["share"] == pytest.approx(0.25)
+    assert geo["slices"][1]["share"] == pytest.approx(0.75)
+
+
+def test_slices_are_walked_in_the_given_order_not_sorted_by_size():
+    """The common pie-library default (largest slice first, or sorted
+    descending) this one deliberately doesn't do — the same "reproduce rows
+    exactly as returned" rule chartGeometry already follows for bar/line."""
+    geo = pie([{"x": "small", "y": 1}, {"x": "big", "y": 9}])
+    assert geo["slices"][0]["value"] == 1
+    assert geo["slices"][1]["value"] == 9
+
+
+def test_a_single_point_is_flagged_as_a_full_circle():
+    """A lone slice is mathematically a full circle — an SVG arc's start and
+    end points would coincide and draw nothing, so this case must be handled
+    with a <circle> instead, and the geometry function has to say so."""
+    geo = pie([{"x": "only", "y": 5}])
+    assert geo["fullCircle"] is True
+    assert geo["fullIndex"] == 0
+    assert geo["slices"][0]["share"] == pytest.approx(1.0)
+
+
+def test_one_nonzero_value_among_zeros_is_also_a_full_circle():
+    """Not just a literal single-point input: a zero-value category alongside
+    it still leaves one slice holding the entire total, the same degenerate
+    case a single point is."""
+    geo = pie([{"x": "a", "y": 0}, {"x": "b", "y": 5}, {"x": "c", "y": 0}])
+    assert geo["fullCircle"] is True
+    assert geo["fullIndex"] == 1
+
+
+def test_two_or_more_positive_values_are_not_a_full_circle():
+    geo = pie([{"x": "a", "y": 1}, {"x": "b", "y": 1}])
+    assert geo["fullCircle"] is False
+
+
 def test_every_trace_panel_offers_a_copy_control():
     """Each `details.trace` the page builds should be copyable; a new block
     type added without one would be an inconsistency users notice before
@@ -703,7 +764,9 @@ def test_every_result_panel_offers_a_download_control():
     page = PAGE.read_text()
     script = page[page.index("<script>"):]
     calls = len(re.findall(r"\baddDownload\(box,", script)) - 1  # -1 for the definition
-    assert calls == 2, f"expected exactly 2 addDownload call sites (table, chart), found {calls}"
+    assert calls == 3, (
+        f"expected exactly 3 addDownload call sites (table, bar/line chart, "
+        f"pie chart), found {calls}")
 
 
 def test_the_download_control_suppresses_the_summary_toggle():

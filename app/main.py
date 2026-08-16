@@ -252,16 +252,19 @@ class ChartTool:
 
     name = "render_chart"
     description = (
-        "Draw a bar or line chart from the rows returned by the most recent "
-        "successful run_sql call in this turn. Provide a chart_type and the "
-        "names of two columns from that result — one for x, one for y. This "
-        "tool reads the rows itself; it does not accept data points, and it "
-        "has no visibility into any query from an earlier turn."
+        "Draw a bar, line, or pie chart from the rows returned by the most "
+        "recent successful run_sql call in this turn. Provide a chart_type "
+        "and the names of two columns from that result — one for x, one for "
+        "y. This tool reads the rows itself; it does not accept data points, "
+        "and it has no visibility into any query from an earlier turn. A pie "
+        "chart requires every y value to be zero or positive, and at most "
+        "8 categories — ask for a bar chart instead of a pie for anything "
+        "wider or with negative values."
     )
     input_schema = {
         "type": "object",
         "properties": {
-            "chart_type": {"type": "string", "enum": ["bar", "line"]},
+            "chart_type": {"type": "string", "enum": ["bar", "line", "pie"]},
             "x_column": {"type": "string",
                         "description": "A column name from the last query result."},
             "y_column": {"type": "string",
@@ -272,10 +275,15 @@ class ChartTool:
         "required": ["chart_type", "x_column", "y_column"],
     }
 
-    _TYPES = ("bar", "line")
+    _TYPES = ("bar", "line", "pie")
     # `bool` is deliberately excluded even though it is an `int` subclass —
     # True/False are not a quantity to plot.
     _NUMERIC = (int, float, Decimal)
+    # A pie past this many slices either repeats a color (two categories
+    # become visually indistinguishable) or needs slices merged into an
+    # invented "other" — a transformation this tool doesn't perform. Refusing
+    # is the honest option a bar chart's label-thinning doesn't need.
+    _PIE_MAX_SLICES = 8
 
     def __init__(self, sql_tool: SqlTool) -> None:
         self.sql_tool = sql_tool
@@ -289,7 +297,8 @@ class ChartTool:
 
         if chart_type not in self._TYPES:
             return self._refuse(
-                f"Unsupported chart type: {chart_type!r}. Use 'bar' or 'line'.")
+                f"Unsupported chart type: {chart_type!r}. Use 'bar', 'line', "
+                "or 'pie'.")
 
         result = self._latest_result()
         if result is None:
@@ -323,11 +332,30 @@ class ChartTool:
                     f"Column {y_column!r} is not numeric (found a "
                     f"{type(y).__name__} value); choose a numeric column for "
                     "the y axis.")
+            if chart_type == "pie" and y < 0:
+                # A slice can't have negative size. Silently taking abs(y)
+                # would be inventing a value the query didn't return — refuse
+                # the whole call instead, same as a non-numeric column.
+                return self._refuse(
+                    f"A pie chart can't show a negative value (found {y!r} "
+                    f"in {y_column!r}); every slice must be zero or "
+                    "positive. Use a bar chart for data that goes negative.")
             x = row[xi]
             points.append({"x": "NULL" if x is None else str(x), "y": float(y)})
 
         if not points:
             return self._refuse(f"No numeric values in {y_column!r} to chart.")
+
+        if chart_type == "pie":
+            if len(points) > self._PIE_MAX_SLICES:
+                return self._refuse(
+                    f"This would need {len(points)} slices; a pie chart "
+                    f"stops being readable well before {self._PIE_MAX_SLICES}. "
+                    "Use a bar chart instead.")
+            if sum(p["y"] for p in points) == 0:
+                return self._refuse(
+                    f"Every value in {y_column!r} is zero; there's nothing "
+                    "to show as a pie.")
 
         payload: dict[str, Any] = {
             "chart_type": chart_type,
@@ -340,7 +368,7 @@ class ChartTool:
             payload["title"] = title
         if result.truncated:
             payload["total_rows_matched"] = result.total_rows
-        note = self._note(result, skipped_null, y_column)
+        note = self._note(result, skipped_null, y_column, chart_type)
         if note:
             payload["note"] = note
         return ToolResult(json.dumps(payload))
@@ -357,9 +385,18 @@ class ChartTool:
         return None
 
     @staticmethod
-    def _note(result: QueryResult, skipped_null: int, y_column: str) -> str:
+    def _note(result: QueryResult, skipped_null: int, y_column: str,
+              chart_type: str) -> str:
         """Disclosure text: the source's own preview-boundary wording, reused
-        rather than re-derived, plus how many rows had nothing to plot."""
+        rather than re-derived, plus how many rows had nothing to plot.
+
+        The pie clause is unconditional — true every time a pie is drawn,
+        regardless of what the query did, unlike the other two clauses which
+        fire only when truncation or a NULL actually happened. A pie visually
+        asserts "these slices sum to the whole"; nothing this tool can check
+        makes that assertion true, so it is disclosed every time rather than
+        never.
+        """
         parts: list[str] = []
         if result.truncated:
             if result.total_rows is None:
@@ -376,6 +413,11 @@ class ChartTool:
             parts.append(
                 f"{skipped_null} row{'s' if skipped_null != 1 else ''} with "
                 f"no value in {y_column!r} were left out.")
+        if chart_type == "pie":
+            parts.append(
+                "Percentages are proportions of the values returned by this "
+                "query, not a verified total — if the query didn't capture "
+                "every category, this chart will still look complete.")
         return " ".join(parts)
 
     @staticmethod

@@ -113,9 +113,9 @@ def test_unsupported_chart_type_refuses_at_runtime(sql_tool, chart_tool):
     belt-and-suspenders posture as the SQL read-only gate not trusting the
     model to only ever send `SELECT`."""
     run(sql_tool, "SELECT label, qty FROM item WHERE id = 1")
-    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    payload, is_error = chart(chart_tool, chart_type="scatter", x_column="label", y_column="qty")
     assert is_error
-    assert "pie" in payload["error"]
+    assert "scatter" in payload["error"]
 
 
 def test_non_numeric_y_column_refuses_without_plotting(sql_tool, chart_tool):
@@ -226,3 +226,62 @@ def test_error_payload_matches_sql_tools_shape(sql_tool, chart_tool):
     payload, is_error = chart(chart_tool, chart_type="bar", x_column="label", y_column="qty")
     assert is_error
     assert set(payload.keys()) == {"error"}
+
+
+# ── pie: disclosure instead of verification ─────────────────────────────────
+
+def test_pie_of_a_small_positive_breakdown_carries_the_disclosure_note(sql_tool, chart_tool):
+    """The completeness caveat is unconditional: it must be present even when
+    nothing else in this call would have produced a note (no truncation, no
+    skipped NULLs) — that's the whole point of it not being situational."""
+    run(sql_tool, "SELECT label, qty FROM item WHERE id IN (1, 2, 3) ORDER BY id")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert not is_error
+    assert payload["points"] == [
+        {"x": "item-001", "y": 2.0},
+        {"x": "item-002", "y": 4.0},
+        {"x": "item-003", "y": 6.0},
+    ]
+    assert "not a verified total" in payload["note"]
+
+
+def test_pie_refuses_a_negative_value(sql_tool, chart_tool):
+    run(sql_tool, "SELECT label, qty - 1000 AS qty FROM item WHERE id IN (1, 2)")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert is_error
+    assert "negative" in payload["error"].lower()
+
+
+def test_pie_refuses_when_every_value_is_zero(sql_tool, chart_tool):
+    run(sql_tool, "SELECT label, 0 AS qty FROM item WHERE id IN (1, 2, 3)")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert is_error
+    assert "zero" in payload["error"].lower()
+
+
+def test_pie_does_not_refuse_a_zero_value_alongside_positive_ones(sql_tool, chart_tool):
+    """Only an all-zero sum is refused — a single zero-share slice among
+    others is a legitimate (if visually tiny) category, not a chart with
+    nothing to show."""
+    run(sql_tool, "SELECT label, CASE WHEN id = 1 THEN 0 ELSE qty END AS qty "
+                  "FROM item WHERE id IN (1, 2) ORDER BY id")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert not is_error
+    assert payload["points"] == [
+        {"x": "item-001", "y": 0.0},
+        {"x": "item-002", "y": 4.0},
+    ]
+
+
+def test_pie_refuses_more_than_eight_slices(sql_tool, chart_tool):
+    run(sql_tool, "SELECT label, qty FROM item WHERE id BETWEEN 1 AND 9 ORDER BY id")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert is_error
+    assert "9" in payload["error"]
+
+
+def test_pie_at_exactly_eight_slices_is_permitted(sql_tool, chart_tool):
+    run(sql_tool, "SELECT label, qty FROM item WHERE id BETWEEN 1 AND 8 ORDER BY id")
+    payload, is_error = chart(chart_tool, chart_type="pie", x_column="label", y_column="qty")
+    assert not is_error
+    assert len(payload["points"]) == 8

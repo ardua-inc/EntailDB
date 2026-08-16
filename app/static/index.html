@@ -9,10 +9,20 @@
     --bg:#faf9f7; --panel:#fff; --ink:#1b1a17; --muted:#6b6862;
     --line:#e3e0da; --accent:#2f6f5e; --warn:#9a3b26; --code:#f4f2ee;
     --head:57px;
+    /* A pie's legibility depends on N slices being N distinguishable colors,
+       unlike bar/line which only ever needed --accent. Eight hues, chosen to
+       stay clear of --warn's red-orange (already means "error" elsewhere in
+       this UI) so no data category can be mistaken for one. */
+    --chart-1:hsl(55,50%,38%); --chart-2:hsl(94,42%,36%); --chart-3:hsl(134,38%,36%);
+    --chart-4:hsl(173,45%,32%); --chart-5:hsl(212,50%,45%); --chart-6:hsl(251,40%,52%);
+    --chart-7:hsl(291,38%,45%); --chart-8:hsl(330,45%,48%);
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#16171a; --panel:#1e2024; --ink:#e8e6e1; --muted:#9b978f;
-            --line:#2e3137; --accent:#6bbfa4; --warn:#e08a72; --code:#24272c; }
+            --line:#2e3137; --accent:#6bbfa4; --warn:#e08a72; --code:#24272c;
+            --chart-1:hsl(55,55%,60%); --chart-2:hsl(94,45%,58%); --chart-3:hsl(134,40%,58%);
+            --chart-4:hsl(173,50%,55%); --chart-5:hsl(212,60%,68%); --chart-6:hsl(251,55%,72%);
+            --chart-7:hsl(291,45%,68%); --chart-8:hsl(330,55%,68%); }
   }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -109,6 +119,10 @@
   .chartWrap { padding:10px 12px 6px; }
   .chartTitle { color:var(--muted); font-size:12.5px; margin-bottom:4px; }
   .chartSvg { width:100%; height:auto; display:block; overflow:visible; }
+  .chartLegend { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:8px; }
+  .chartLegendItem { display:flex; align-items:center; gap:6px; font-size:12.5px; }
+  .chartLegendItem .muted { color:var(--muted); }
+  .chartSwatch { width:10px; height:10px; border-radius:2px; flex:none; }
   .ver { font-size:11px; color:var(--muted); letter-spacing:.02em; }
   .note { padding:6px 12px; font-size:12.5px; color:var(--muted); }
   .note.wait { color:var(--muted); font-style:italic; }
@@ -626,6 +640,45 @@ function chartGeometry(points, width, height) {
   };
 }
 
+/* Pure slice-angle geometry for a pie, kept separate from DOM construction
+   like chartGeometry. Points are walked in the order given -- never sorted
+   by size, the common pie-library default this one deliberately doesn't do,
+   since a chart is another rendering of the same rows the table shows and
+   must reproduce their order exactly.
+
+   A single slice holding the entire total -- either because there is only
+   one point, or because every other point's value is zero -- is
+   mathematically a full circle. An SVG arc command can't draw one (its
+   start and end points would coincide, drawing nothing), so that case is
+   flagged as `fullCircle` with the index of the slice that holds it,
+   letting the caller draw a plain <circle> instead of a degenerate <path>. */
+function pieGeometry(points, cx, cy, r) {
+  const total = points.reduce((s, p) => s + p.y, 0);
+  const positive = points.reduce((n, p) => n + (p.y > 0 ? 1 : 0), 0);
+  if (positive <= 1) {
+    const fullIndex = points.findIndex(p => p.y > 0);
+    return {
+      fullCircle: true,
+      fullIndex,
+      slices: points.map(p => ({ value: p.y, share: total ? p.y / total : 0 })),
+    };
+  }
+  let angle = -Math.PI / 2;   // start at 12 o'clock, sweep clockwise
+  const slices = points.map(p => {
+    const share = p.y / total;
+    const startAngle = angle;
+    const endAngle = angle + share * 2 * Math.PI;
+    angle = endAngle;
+    return {
+      value: p.y, share, startAngle, endAngle,
+      x1: cx + r * Math.cos(startAngle), y1: cy + r * Math.sin(startAngle),
+      x2: cx + r * Math.cos(endAngle), y2: cy + r * Math.sin(endAngle),
+      largeArc: (endAngle - startAngle) > Math.PI ? 1 : 0,
+    };
+  });
+  return { fullCircle: false, fullIndex: -1, slices };
+}
+
 function fmtChartNum(v) {
   return Number.isInteger(v) ? v.toLocaleString()
                               : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -646,6 +699,11 @@ function renderChart(box, data) {
   // it is the answer, not evidence to check on request. Collapsed, the model
   // could say "see the chart above" and nobody would see one.
   box.open = true;
+
+  if (data.chart_type === "pie") {
+    renderPieChart(box, data);
+    return;
+  }
 
   const geo = chartGeometry(data.points, CHART_W, CHART_H);
   const svgW = CHART_W + CHART_PAD_L + CHART_PAD_R;
@@ -712,6 +770,63 @@ function renderChart(box, data) {
   // Same escaping as the table's copy button — a chart is two columns of the
   // same rows, so it is copyable the same way, not with a second
   // implementation of the quoting rules.
+  addCopy(box, () => toTSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
+    `Copy these ${n} point${n === 1 ? "" : "s"} for a spreadsheet`);
+  addDownload(box,
+    () => csvFilename("entaildb-chart", n, data.total_rows_matched),
+    () => toCSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
+    `Download these ${n} point${n === 1 ? "" : "s"} as CSV`);
+}
+
+const PIE_R = 70, PIE_CX = PIE_R + 10, PIE_CY = PIE_R + 10;
+
+/* A legend, not slice labels: curved text-on-arc is real complexity a
+   hand-rolled SVG renderer doesn't need to take on for one chart type when
+   a swatch/category/value/percentage list below the pie carries the same
+   information. Percentages are computed here from the real `points`, same
+   "derived from actual rows, never asserted by the model" rule as
+   everything else in this file. Called only from renderChart, which has
+   already set the summary text and box.open. */
+function renderPieChart(box, data) {
+  const n = data.points.length;
+  const pie = pieGeometry(data.points, PIE_CX, PIE_CY, PIE_R);
+  const svgW = PIE_CX + PIE_R + 10, svgH = PIE_CY + PIE_R + 10;
+  const color = i => `var(--chart-${(i % 8) + 1})`;
+
+  const shapes = pie.fullCircle
+    ? (pie.fullIndex === -1 ? "" :
+        `<circle cx="${PIE_CX}" cy="${PIE_CY}" r="${PIE_R}" fill="${color(pie.fullIndex)}"></circle>`)
+    : pie.slices.map((s, i) => s.share <= 0 ? "" :
+        `<path d="M${PIE_CX},${PIE_CY} L${s.x1.toFixed(1)},${s.y1.toFixed(1)} ` +
+        `A${PIE_R},${PIE_R} 0 ${s.largeArc},1 ${s.x2.toFixed(1)},${s.y2.toFixed(1)} Z" ` +
+        `fill="${color(i)}"></path>`
+      ).join("");
+
+  const svg = el(`
+    <svg viewBox="0 0 ${svgW} ${svgH}" class="chartSvg" role="img" aria-label="${esc(
+      (data.title ? data.title + ": " : "") + data.y_label + " by " + data.x_label)}">
+      ${shapes}
+    </svg>`);
+
+  const legend = el(`<div class="chartLegend"></div>`);
+  pie.slices.forEach((s, i) => {
+    const pct = (s.share * 100).toFixed(1);
+    legend.appendChild(el(
+      `<div class="chartLegendItem">
+         <span class="chartSwatch" style="background:${color(i)}"></span>
+         <span>${esc(data.points[i].x)}</span>
+         <span class="muted">${esc(fmtChartNum(s.value))} (${pct}%)</span>
+       </div>`));
+  });
+
+  const wrap = el(`<div class="chartWrap"></div>`);
+  if (data.title) wrap.appendChild(el(`<div class="chartTitle">${esc(data.title)}</div>`));
+  wrap.appendChild(svg);
+  wrap.appendChild(legend);
+  box.appendChild(wrap);
+  if (data.note) box.appendChild(el(`<div class="note">${esc(data.note)}</div>`));
+  // Same escaping and shape as the bar/line copy+download buttons — a pie is
+  // still two columns of the same rows underneath the legend.
   addCopy(box, () => toTSV([data.x_label, data.y_label], data.points.map(p => [p.x, p.y])),
     `Copy these ${n} point${n === 1 ? "" : "s"} for a spreadsheet`);
   addDownload(box,

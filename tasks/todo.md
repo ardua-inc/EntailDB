@@ -445,11 +445,23 @@ known to be wanted rather than guessed at. Neither is a straight port: each
 touches the entailment claim, and getting that wrong would put a fabrication
 somewhere harder to check than prose.
 
-### 3. Charts — ~~backlog~~ done in 0.1.34
+### 3. Charts — ~~backlog~~ done in 0.1.34; pie added in 0.1.38
 
 Shipped as a second tool, `render_chart`, next to `SqlTool` in `app/main.py`,
 under exactly the constraint below. `tests/test_chart_tool.py` covers the
 validation; `tests/test_markdown_render.py` covers the pixel geometry.
+
+Pie shipped in 0.1.38 was deliberately deferred at 0.1.34: a pie visually
+asserts "these values sum to a meaningful whole," a claim `render_chart` has
+no way to verify from an arbitrary query result. Rather than trying to verify
+it, the tool discloses it instead — every pie carries an unconditional note
+that the shares are proportions of the values *returned*, not a verified
+total — the same move already used for preview truncation and skipped NULLs.
+A negative value or an all-zero sum refuses outright (a slice can't have
+negative size, and there's nothing to show), and more than 8 categories
+refuses rather than degrade (unlike bar's label-thinning, a pie has no
+readable way to show a ninth slice without repeating a color or inventing an
+"other" category).
 
 A chart is another rendering of the rows, so it inherits the whole thesis. The
 failure mode is specific and worse than a bad-looking graph: a chart whose bars

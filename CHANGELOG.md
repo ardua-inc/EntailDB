@@ -2,6 +2,49 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.38] - 2026-08-16
+
+Pie charts — the third `render_chart` type, deliberately deferred at 0.1.34.
+
+A pie visually asserts "these values sum to a meaningful whole," a claim
+`ChartTool` has no way to verify about an arbitrary query result the way it
+*can* verify a column is numeric or that a row wasn't invented. The answer
+isn't to try to verify it — it's to disclose it, the same move `render_chart`
+already makes for preview truncation and skipped NULLs: every pie carries an
+unconditional note that its percentages are proportions of the values the
+query actually returned, not a verified total, present whether or not
+anything else about the call produced a note.
+
+Two validation rules new to pie, inside the same row walk that already
+refuses a non-numeric y column: a negative value refuses the whole call (a
+slice can't have negative size, and silently taking `abs()` would be
+inventing a value the query didn't return); an all-zero sum refuses too (a
+single zero-value slice alongside positive ones is still shown — only every
+value being zero has nothing to plot). A new cap, `PIE_MAX_SLICES = 8`,
+refuses past that count rather than degrade — bar's response to too many
+categories is to thin the *labels* while every bar still draws accurately; a
+pie has no equivalent, since past a handful of slices either colors repeat or
+slices would need merging into an invented "other" category, a transformation
+this tool doesn't perform.
+
+Rendering stays dependency-free: `pieGeometry()` in `app/static/index.html`
+converts the real rows straight to slice angles, in the order returned, same
+as `chartGeometry()` already does for bar/line. A single slice holding the
+whole total — one point, or every other value being zero — is mathematically
+a full circle, which an SVG arc command can't express (coincident start/end
+points draw nothing); flagged and drawn as a plain `<circle>` instead. Labels
+are a legend below the pie rather than curved text on the arcs — a swatch,
+category, value, and percentage per row, the percentage computed client-side
+from the real points, never asserted by the model. Eight new `--chart-1`
+through `--chart-8` custom properties (light and dark) give each slice a
+distinguishable color, chosen clear of `--warn`'s red-orange so no category
+misreads as an error.
+
+Verified live against `dvdrental`: a 5-category pie (film ratings) rendered
+correctly with the disclosure note present and legend percentages summing to
+100%; asking for a pie of a 16-category breakdown produced a clear refusal
+surfaced honestly to the user, not a silently-swapped or misleading chart.
+
 ## [0.1.37] - 2026-08-15
 
 MongoDB, the fifth connector and the first that isn't SQL.
