@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from fidelity.profiler import Dialect
+from fidelity.profiler import Dialect, Fact, derive, profile_database
 
 PREVIEW_ROWS = 50
 
@@ -213,6 +213,20 @@ class BaseConnector:
 
     def dialect(self) -> Dialect:
         raise NotImplementedError
+
+    def facts(self) -> list[Fact]:
+        """Profile this connection and derive its facts.
+
+        Default is the SQL profiler, which is what every product but Mongo
+        actually is — so this is the one place `profile_database()` and
+        `.dialect()` get called for the four SQL drivers, and no driver has
+        to repeat it. A connector whose query language isn't SQL (Mongo)
+        overrides this outright with its own profiling strategy, still
+        finishing through the same `derive()` — the part of the pipeline
+        that has nothing SQL-specific in it.
+        """
+        tables, joins = profile_database(self.runner(), self.dialect())
+        return derive(tables, joins)
 
     # ── connection ────────────────────────────────────────────────────────
     def _connect(self) -> Any:

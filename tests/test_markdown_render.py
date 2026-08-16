@@ -693,16 +693,17 @@ def test_the_copy_control_suppresses_the_summary_toggle():
     assert "e.stopPropagation()" in handler
 
 
-def test_every_trace_panel_offers_a_download_control():
-    """Same guard as the copy control, for the CSV download button added
-    alongside it — a new panel type that copies but can't be saved to disk
-    would be an inconsistency, same as one that can't be copied."""
+def test_every_result_panel_offers_a_download_control():
+    """Narrower than the copy-control guard on purpose: download only makes
+    sense for a panel showing tabular data (a result table, a chart) — not
+    for one showing a query's own text or a prose facts document, which
+    `addCopy` alone already covers correctly. Counts real call sites, not
+    literal occurrences of the string `addDownload(`, which also matches the
+    function's own definition line."""
     page = PAGE.read_text()
     script = page[page.index("<script>"):]
-    built = script.count('<details class="trace"')
-    wired = script.count("addDownload(")
-    assert built > 0
-    assert wired >= built, f"{built} trace panels built but only {wired} addDownload calls"
+    calls = len(re.findall(r"\baddDownload\(box,", script)) - 1  # -1 for the definition
+    assert calls == 2, f"expected exactly 2 addDownload call sites (table, chart), found {calls}"
 
 
 def test_the_download_control_suppresses_the_summary_toggle():
@@ -717,6 +718,20 @@ def test_the_table_download_reuses_toCSV():
     page = PAGE.read_text()
     result_fn = page[page.index("function renderResult("):page.index("const CHART_W")]
     assert "toCSV(" in result_fn
+
+
+def test_a_mongo_query_gets_its_own_panel_not_labeled_sql():
+    """The app's own banner promise — 'every answer keeps the SQL it ran and
+    the rows it got back' — has to hold for a query language that isn't SQL
+    too. Caught live: the first working mongo_query call rendered no request
+    panel at all, silently falling into the branch meant for a tool (the
+    chart) that genuinely has nothing to show."""
+    page = PAGE.read_text()
+    apply_fn = page[page.index("function applyEvent("):page.index("function replay(")]
+    assert 'name === "mongo_query"' in apply_fn
+    mongo_branch = apply_fn[apply_fn.index('name === "mongo_query"'):]
+    assert "<summary>Query</summary>" in mongo_branch
+    assert "SQL" not in mongo_branch.split("</details>")[0]
 
 
 def test_the_chart_copy_button_reuses_toTSV():

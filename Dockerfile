@@ -12,7 +12,7 @@ COPY app ./app
 
 RUN pip install --no-cache-dir \
         fastapi "uvicorn[standard]" anthropic openai cryptography \
-        "psycopg[binary]" PyMySQL pymssql \
+        "psycopg[binary]" PyMySQL pymssql pymongo \
     && pip install --no-cache-dir -e .
 
 # Connection settings and the generated key live here. Mount it to persist.

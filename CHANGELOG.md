@@ -2,6 +2,69 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.37] - 2026-08-15
+
+MongoDB, the fifth connector and the first that isn't SQL.
+
+DESIGN.md has carried "document stores remain later-and-only-if the
+profiler generalises, which is still not established" since the profiler
+was built. It generalises. `derive()` and `render()` operate purely on
+already-abstracted `TableProfile`/`ColumnProfile`/`JoinProfile`/`Fact`
+dataclasses with no SQL left in them; a new document-sampling prober
+(`src/fidelity/profiler/mongo_probe.py`) builds those same dataclasses from
+`$sample`-based document sampling instead of `information_schema` queries,
+and gets the entire fact-derivation and rendering pipeline for free. What
+does not generalise is everything upstream of that point: `Dialect` and
+`profile_database()` assemble literal SQL strings, which a Mongo driver
+cannot execute at all, and `BaseConnector.query()`'s cursor protocol assumes
+a DB-API `.execute(sql)` that doesn't exist for Mongo either. `MongoConnector`
+overrides query execution outright rather than implementing the SQL-shaped
+methods; `BaseConnector` gained one new seam for it (`facts()`, default body
+is the SQL path every other driver already had, moved down one layer so
+`app/main.py` no longer calls `.dialect()`/`.runner()` directly at all).
+
+The read-only gate is a parallel one (`refuse_reason()` validating a
+structured `find`/`aggregate`/`count`/`distinct` operation, not parsing SQL
+text) — allowlisted aggregation stages, `$out`/`$merge`/`$where`/`$function`/
+`$accumulator` refused at any nesting depth, not just at the top level. It
+carries more weight than its SQL counterpart: pymongo's `MongoClient` has no
+equivalent to Postgres's `read_only = True` or SQLite's `mode=ro`, so for a
+connection without a scoped `read` role, this allowlist is the only control,
+not a second layer under one. Documented as such in the README's Security
+section, not left implicit.
+
+A dedicated tool, `mongo_query`, not a second thing `run_sql` accepts —
+forcing Mongo's query language through something named and described as SQL
+would mislead the model. `ChartTool` needed no changes to work with it; it
+only ever reads the `result` a tool's call history carries, never how the
+query was expressed.
+
+Verified against a real, previously-unseen MongoDB 5.0 database recovered
+from a dormant 2022 deployment (137MB, 15 collections, nested documents,
+nothing about its shape known in advance): the profiler correctly surfaced a
+genuinely mixed-type field, dozens of sparsely-present fields, and a
+collection whose corrupted metadata makes even a plain `find()` fail
+server-side — caught cleanly and reported as its own fact rather than
+aborting the run. A live model call correctly answered a real question
+(deal status breakdown, cross-checked by hand against the same query run
+directly), and — without any guard needing to fire — declined a request to
+delete data on the strength of its own tool description alone.
+
+One gap found live and closed in the same pass: the SSE/storage event
+plumbing rendered nothing at all for a `mongo_query` call, silently falling
+into the branch meant for a tool (the chart) that genuinely has no request
+worth showing. The app's own banner promise — "every answer keeps the SQL it
+ran and the rows it got back" — has to hold for a query language that isn't
+SQL too; `mongo_query` calls now get their own "Query" panel, labeled for
+what it actually is rather than reusing the word SQL.
+
+A second gap, found immediately after by someone actually reading that
+panel: what it showed was a dump of `mongo_query`'s own JSON argument
+schema (`{"collection": "Deal", "operation": "find", ...}`) — not valid
+syntax anywhere, unlike the SQL panel's contents. `_mongo_shell_text()`
+renders the same call as real, pasteable `mongosh` (`db.Deal.find({...})`),
+which is what both the panel and its copy button now carry.
+
 ## [0.1.36] - 2026-08-14
 
 Three fixes from one real conversation against a 692-row airports table.

@@ -108,7 +108,8 @@ Two consequences for this design:
 │  NO AUTH — loopback only. See "Configuration and credentials".    │
 │  ┌─ connectors/ (registry) ──┐  ┌─ providers/ (registry) ──────┐  │
 │  │ postgres · mysql ·        │  │ anthropic · openai-chat ·    │  │
-│  │ sqlserver · sqlite        │  │ openai-responses             │  │
+│  │ sqlserver · sqlite ·      │  │ openai-responses             │  │
+│  │ mongodb                   │  │                               │  │
 │  └───────────────────────────┘  └──────────────────────────────┘  │
 └───────────────────────────┬───────────────────────────────────────┘
                             │ depends on
@@ -273,8 +274,31 @@ Projected landing point: ~80 lines, down from 832.
 One self-contained module per DBMS in `app/connectors/`, each declaring its own
 kind, label, default port, DSN shape, dialect, and how to open a read-only
 connection. **Built: PostgreSQL, MySQL/MariaDB, SQL Server, SQLite**, all
-verified against live databases (`MEASUREMENT.md` §6). Document stores remain
-later-and-only-if the profiler generalises, which is still not established.
+verified against live databases (`MEASUREMENT.md` §6).
+
+**Document stores were "later-and-only-if the profiler generalises," and now
+are.** `app/connectors/mongodb.py` and `src/fidelity/profiler/mongo_probe.py`
+are not an implementation of the SQL-shaped `Dialect` protocol — that protocol
+generates literal SQL strings, which a Mongo driver cannot execute at all, not
+merely awkwardly. What generalised instead is downstream of it: `derive()` and
+`render()` (`fidelity/profiler/facts.py`) operate purely on already-abstracted
+`TableProfile`/`ColumnProfile`/`JoinProfile`/`Fact` dataclasses, with no SQL
+left in them by that point. A document-sampling prober that builds those same
+dataclasses gets the entire fact-derivation and rendering pipeline for free.
+Verified against a real, previously-unseen 15-collection, 137MB MongoDB 5.0
+database recovered from a 2022 deployment: the profiler correctly surfaced a
+genuinely mixed-type field, dozens of sparsely-present fields, and — without
+being told — cleanly caught and reported a collection whose corrupted
+metadata makes even a plain `find()` fail server-side, rather than that one
+collection aborting the run.
+
+Mongo also has no driver-level read-only mode to fall back on — Postgres has
+`read_only = True`, SQLite has `mode=ro`, pymongo's `MongoClient` has nothing
+equivalent. The application-level operation allowlist
+(`find`/`aggregate`/`count`/`distinct` only, `$out`/`$merge`/`$where`/
+`$function`/`$accumulator` refused at any nesting depth) is a bigger share of
+the real protection here than the equivalent gate is for a SQL connection with
+a scoped database role under it. See the README's Security section.
 
 Everything database-agnostic — the read-only statement gate, the bounded
 preview, the exact-total rule — stays in the base class. A driver that

@@ -78,6 +78,18 @@ the bounded preview. Both live in the base class. A driver free to get those
 subtly wrong is a driver free to produce "wrong in a way that still returns
 rows", which is the failure this project exists to prevent.
 
+**That "two or three methods" promise holds only for a SQL product.** The base
+class's shared machinery — the read-only gate, `query()`'s cursor handling,
+the `Dialect` protocol the schema profiler drives — is SQL-shaped throughout,
+because four of the five drivers speak SQL. `app/connectors/mongodb.py` is
+the one that doesn't, and it's a much bigger file: its own read-only gate
+(there's no SQL text to parse, so it validates a structured operation
+instead), a full `query()` override, its own document-sampling profiler
+(`src/fidelity/profiler/mongo_probe.py`, since there's no `information_schema`
+either), and a dedicated tool in `app/main.py` rather than reusing `run_sql`.
+If your driver's query language isn't SQL, read `mongodb.py` first, not a SQL
+connector — it's the template for "different shape," not "extra work."
+
 A provider adapter is expected to come with a fidelity run before it is
 advertised as supported — see below.
 

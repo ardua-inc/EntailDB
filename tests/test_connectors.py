@@ -189,7 +189,7 @@ def test_an_unknown_total_is_reported_as_unknown_not_as_the_preview_size():
 # ── dialects ──────────────────────────────────────────────────────────────
 
 def test_every_supported_kind_resolves_to_a_dialect():
-    for kind in ("sqlite", "postgres", "mysql", "sqlserver"):
+    for kind in ("sqlite", "postgres", "mysql", "sqlserver", "mongodb"):
         assert Connector(kind, {}).dialect() is not None
 
 
@@ -206,6 +206,7 @@ def test_each_dialect_names_its_own_product_in_its_prompt_note():
         ("postgres", "PostgreSQL"),
         ("mysql", "MySQL"),
         ("sqlserver", "SQL Server"),
+        ("mongodb", "MongoDB"),
     ):
         assert expected in Connector(kind, {}).dialect().prompt_note
 
@@ -216,6 +217,57 @@ def test_the_sqlserver_note_corrects_the_mistake_that_prompted_it():
     note = Connector("sqlserver", {}).dialect().prompt_note
     assert "dbo" in note
     assert "public" in note
+
+
+def test_the_mongodb_note_says_which_tool_to_use():
+    """The one thing a Mongo connection needs to tell the model that the
+    other four don't: it does not speak SQL at all."""
+    note = Connector("mongodb", {}).dialect().prompt_note
+    assert "mongo_query" in note
+    assert "SQL" in note
+
+
+# ── mongodb: no cursor, no driver-level read-only mode ──────────────────────
+#
+# The other four drivers get read-only enforcement, DSN shaping and query
+# execution almost for free from `BaseConnector`. Mongo can't: there is no
+# SQL string, so `MongoConnector` overrides `query()` outright rather than
+# implementing `_query()`'s cursor protocol. `refuse_reason`'s own test
+# matrix lives in `tests/test_mongo_gate.py`; these cover what's specific to
+# the connector itself.
+
+def test_mongodb_dsn_omits_credentials_when_blank():
+    """A blank password must never reach `MongoClient` as an empty string —
+    pymongo treats that as "authenticate with nothing" rather than "no
+    authentication requested", and fails against a database with no auth
+    enabled at all (the connection this was written against)."""
+    from app.connectors import dsn_for
+
+    dsn = dsn_for("mongodb", {"host": "localhost", "port": 27017,
+                              "database": "app", "user": "", "password": ""})
+    assert dsn == {"host": "localhost", "port": 27017}
+
+
+def test_mongodb_dsn_includes_credentials_when_supplied():
+    from app.connectors import dsn_for
+
+    dsn = dsn_for("mongodb", {"host": "localhost", "port": 27017,
+                              "database": "app", "user": "reader",
+                              "password": "secret"})
+    assert dsn == {"host": "localhost", "port": 27017,
+                   "username": "reader", "password": "secret",
+                   "authSource": "app"}
+
+
+def test_mongodb_needs_no_query_rewriting_belt():
+    """Unlike SQL Server, there is no product-level "read-only session"
+    Mongo could hold under the gate — `rollback_after_query` being False here
+    is not "this one is safe", it's "there is nothing to roll back": finds,
+    aggregates, counts and distincts have no side effect to undo. Covered
+    together with the other four in `test_only_sql_server_needs_the_rollback_belt`."""
+    from app.connectors.mongodb import MongoConnector
+
+    assert MongoConnector.rollback_after_query is False
 
 
 # ── the served page ───────────────────────────────────────────────────────
@@ -317,4 +369,4 @@ def test_only_sql_server_needs_the_rollback_belt():
     needs = {k: connectors.REGISTRY[k].rollback_after_query
              for k in connectors.kinds()}
     assert needs == {"sqlserver": True, "postgres": False,
-                     "mysql": False, "sqlite": False}
+                     "mysql": False, "sqlite": False, "mongodb": False}

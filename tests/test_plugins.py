@@ -224,7 +224,7 @@ def test_an_unknown_kind_is_refused_rather_than_defaulted():
 # ── the built-ins still arrive by the same route ──────────────────────────
 
 def test_every_built_in_is_registered_by_discovery():
-    assert set(connectors.kinds()) == {"postgres", "mysql", "sqlserver", "sqlite"}
+    assert set(connectors.kinds()) == {"postgres", "mysql", "sqlserver", "sqlite", "mongodb"}
     assert set(providers.kinds()) == {"anthropic", "openai", "openai_responses"}
 
 

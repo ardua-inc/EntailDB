@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "entaildb"
-version = "0.1.36"
+version = "0.1.37"
 description = "Output-fidelity guards for tool-using analytics assistants."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ dependencies = []
 # The eval harness is not needed to use the library. Kept separate so a
 # consumer installing the guards does not pull an API client.
 evals = ["anthropic>=0.40", "pyyaml>=6.0"]
-dev = ["pytest>=8.0", "anthropic>=0.40", "pyyaml>=6.0", "psycopg[binary]>=3.2"]
+dev = ["pytest>=8.0", "anthropic>=0.40", "pyyaml>=6.0", "psycopg[binary]>=3.2", "pymongo>=4.6"]
 # The library is driver-free by design. A driver is a *test* dependency:
 # `src/fidelity` never imports one, and a test asserts that.
 

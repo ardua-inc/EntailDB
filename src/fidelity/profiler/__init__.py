@@ -52,6 +52,7 @@ from .dialects import (  # noqa: F401
     infer_soft_keys,
 )
 from .facts import derive, dominant_format, render, shape_of  # noqa: F401
+from .mongo_probe import profile_mongo_database  # noqa: F401
 from .model import (  # noqa: F401
     ColumnProfile,
     ColumnRef,

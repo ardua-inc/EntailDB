@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from fidelity.profiler import derive, profile_database, render
+from fidelity.profiler import render
 from fidelity.runner import FidelityRunner, ToolResult
 
 from . import config, threads
@@ -136,6 +136,106 @@ class SqlTool:
         result = self.connector.query(sql, preview=preview)
         self.calls.append({"sql": sql, "result": result})
         return ToolResult(result.to_json(), is_error=result.error is not None)
+
+
+class MongoQueryTool:
+    """The MongoDB equivalent of `SqlTool` — a structured operation, not a
+    query string. Forcing Mongo's query language through a tool named and
+    described as SQL would be actively misleading to the model, so this is
+    a separate tool rather than a second thing `run_sql` accepts. Kept to
+    the same shape as `SqlTool` on purpose (`self.calls` holding a `result`
+    per call) so `ChartTool` works against either with no changes of its
+    own — it only ever reads `entry["result"]`.
+    """
+
+    name = "mongo_query"
+    description = (
+        "Run a read-only MongoDB operation and return a bounded preview of "
+        "the results. One of four operations: find (filter, projection, "
+        "sort), aggregate (a pipeline), count, or distinct (one field). "
+        "Large result sets come back as a bounded preview with the total "
+        "number of matching documents stated separately."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "collection": {"type": "string",
+                          "description": "The collection to query."},
+            "operation": {"type": "string",
+                         "enum": ["find", "aggregate", "count", "distinct"]},
+            "filter": {"type": "object",
+                      "description": "A MongoDB filter document. For find/count/distinct."},
+            "projection": {"type": "object",
+                          "description": "Which fields to return. For find only."},
+            "sort": {"type": "object",
+                    "description": "Field to sort direction (1 or -1). For find only."},
+            "pipeline": {"type": "array",
+                        "description": "An aggregation pipeline. For aggregate only."},
+            "field": {"type": "string",
+                     "description": "The field to collect distinct values of. For distinct only."},
+            "max_rows": {
+                "type": "integer",
+                "description": (
+                    f"How many documents to return, up to {MAX_PREVIEW_ROWS}. "
+                    f"Defaults to {PREVIEW_ROWS} if omitted. Only raise this "
+                    "when the person explicitly asks for more than the "
+                    "default preview, or for all of a result already known "
+                    "to be larger than that — prefer pointing them at the "
+                    "CSV download on the result above over pasting many "
+                    "documents into your answer."
+                ),
+            },
+        },
+        "required": ["collection", "operation"],
+    }
+
+    def __init__(self, connector: Connector) -> None:
+        self.connector = connector
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, arguments: dict[str, Any]) -> ToolResult:
+        args = arguments or {}
+        preview = _clamp_preview(args.get("max_rows"))
+        query = {k: v for k, v in args.items() if k != "max_rows"}
+        result = self.connector.query(query, preview=preview)
+        self.calls.append({"query": query, "result": result})
+        return ToolResult(result.to_json(), is_error=result.error is not None)
+
+
+def _mongo_shell_text(query: dict[str, Any]) -> str:
+    """The query as `mongosh` shell syntax — `db.Deal.find({...})` — not a
+    dump of this tool's own argument schema. The point of the panel this
+    feeds is the same as the SQL one's: something a reader could copy and
+    actually run, not a description of what ran. JSON's double-quoted keys
+    are already valid inside a shell call, so no separate JS-literal
+    formatting is needed for the filter/pipeline bodies themselves.
+    """
+    collection = query.get("collection", "?")
+    operation = query.get("operation")
+
+    def j(value: Any) -> str:
+        return json.dumps(value, indent=2, default=str)
+
+    if operation == "find":
+        args = [j(query.get("filter") or {})]
+        if query.get("projection"):
+            args.append(j(query["projection"]))
+        call = f"db.{collection}.find({', '.join(args)})"
+        if query.get("sort"):
+            call += f".sort({j(query['sort'])})"
+        return call
+    if operation == "aggregate":
+        return f"db.{collection}.aggregate({j(query.get('pipeline') or [])})"
+    if operation == "count":
+        return f"db.{collection}.countDocuments({j(query.get('filter') or {})})"
+    if operation == "distinct":
+        field = j(query.get("field", ""))
+        filt = query.get("filter")
+        return (f"db.{collection}.distinct({field}, {j(filt)})" if filt
+                else f"db.{collection}.distinct({field})")
+    # An operation the schema doesn't recognize (refused before it ran) —
+    # shown as what was actually asked for rather than hidden.
+    return j(query)
 
 
 class ChartTool:
@@ -374,8 +474,7 @@ def profile_connection(connection_id: str) -> dict[str, Any]:
     conn = _connection(connection_id)
     c = Connector(conn.kind, conn.dsn(), conn.database)
     try:
-        tables, joins = profile_database(c.runner(), c.dialect())
-        facts = derive(tables, joins)
+        facts = c.facts()
         document = render(facts, database=conn.database, max_per_section=12)
     finally:
         c.close()
@@ -566,7 +665,12 @@ def _answer(settings: config.Settings, thread: threads.Thread,
         )
 
     connector = Connector(conn.kind, conn.dsn(), conn.database)
-    tool = SqlTool(connector)
+    # A query-language family decision (currently SQL vs Mongo), not the
+    # per-database growth the DSN chain-of-ifs had before the connector
+    # registry existed — every SQL product already shares SqlTool. If a
+    # third query paradigm ever shows up, that's the point to generalize
+    # this into a per-connector hook; not before.
+    tool = MongoQueryTool(connector) if conn.kind == "mongodb" else SqlTool(connector)
     chart_tool = ChartTool(tool)
 
     system = SYSTEM_PROMPT
@@ -608,13 +712,19 @@ def _answer(settings: config.Settings, thread: threads.Thread,
                     answer.append(event.text)
                 elif event.type == "tool_call":
                     payload["name"] = event.name
-                    # Only `run_sql` has "code" worth showing; a chart request
-                    # has nothing analogous, so no other tool grows a field
-                    # here just because this one needed "sql".
+                    # `run_sql` and `mongo_query` both have a real request
+                    # worth showing, in their own shape; a chart request does
+                    # not (the columns and type chosen are already implicit
+                    # in the result that follows), so no field grows here for
+                    # that one.
                     if event.name == "run_sql":
                         payload["sql"] = event.arguments.get("query", "")
+                    elif event.name == "mongo_query":
+                        payload["query"] = _mongo_shell_text(
+                            {k: v for k, v in event.arguments.items() if k != "max_rows"})
                     threads.append_event(thread.id, "tool_call", name=event.name,
-                                         sql=payload.get("sql", ""))
+                                         sql=payload.get("sql", ""),
+                                         query=payload.get("query", ""))
                 elif event.type == "tool_result":
                     payload["name"] = event.name
                     payload["result"] = event.result

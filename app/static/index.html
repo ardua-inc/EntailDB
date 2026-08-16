@@ -735,8 +735,16 @@ function applyEvent(body, stream, ev) {
   } else if (kind === "tool_call") {
     if (name === "run_sql") {
       const box = el(
-        `<details class="trace"><summary>SQL</summary><pre>${esc(ev.sql)}</pre></details>`);
-      addCopy(box, () => ev.sql, "Copy this SQL");
+        `<details class="trace"><summary>SQL</summary><pre>${esc(ev.sql || "")}</pre></details>`);
+      addCopy(box, () => ev.sql || "", "Copy this SQL");
+      stream.block(box);
+    } else if (name === "mongo_query") {
+      // `|| ""` matters for real: a thread stored before this panel existed
+      // has no `query` field at all, and `esc(undefined)` renders the
+      // literal text "undefined" into the panel rather than an empty one.
+      const box = el(
+        `<details class="trace"><summary>Query</summary><pre>${esc(ev.query || "")}</pre></details>`);
+      addCopy(box, () => ev.query || "", "Copy this query");
       stream.block(box);
     } else {
       // No request "code" worth showing for a chart pick — the columns and

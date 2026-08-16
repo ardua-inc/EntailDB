@@ -283,7 +283,8 @@ docker compose up -d --build
 
 Then open <http://127.0.0.1:8080>. Add a model and at least one database
 connection on the settings page; there is no `.env` file and no environment
-configuration to edit. PostgreSQL, MySQL, SQL Server, and SQLite are supported.
+configuration to edit. PostgreSQL, MySQL, SQL Server, SQLite, and MongoDB are
+supported.
 
 **Models are configured, not compiled in.** A model is a named profile — call
 it what you like — pointing at either Anthropic or any OpenAI-compatible
@@ -328,6 +329,16 @@ afterwards because T-SQL has no read-only session — but a read-only principal 
 the control that does not depend on this project's parser being right. It is one
 `GRANT` and it is the difference between a bug here being an inconvenience and
 being a deleted table.
+
+**MongoDB has no equivalent driver-level backstop.** Postgres opens the
+connection with `read_only = True`; SQLite opens `mode=ro`. Pymongo's
+`MongoClient` has nothing like it, so for a Mongo connection the application's
+own operation allowlist (`find`/`aggregate`/`count`/`distinct` only, with
+`$out`/`$merge`/`$where`/`$function`/`$accumulator` refused at any nesting
+depth) is not a second layer under a database-level control — it is the only
+one, unless the connection is made with a role scoped to `read`. Create that
+role the same way you would grant `SELECT`-only on a SQL database, and use
+those credentials here.
 
 Conversations are stored under the data directory as `0600` files in a `0700`
 directory. They contain query results — real data from your databases — in
