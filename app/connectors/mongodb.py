@@ -166,6 +166,13 @@ class MongoConnector(BaseConnector):
         documents instead and already returns finished, derived facts."""
         return profile_mongo_database(self._db())
 
+    def ping(self) -> None:
+        """Overrides `BaseConnector.ping()`'s `cursor().execute("SELECT 1")`
+        — there is no cursor here either. `admin.command("ping")` is
+        Mongo's own zero-cost reachability check, raising the same way a
+        bad host or bad credential would raise from a real query."""
+        self._connect().admin.command("ping")
+
     def _db(self) -> Any:
         return self._connect()[self.database]
 

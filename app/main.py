@@ -495,13 +495,22 @@ def delete_connection(connection_id: str) -> dict[str, Any]:
 
 @app.post("/api/connections/{connection_id}/test")
 def test_connection(connection_id: str) -> dict[str, Any]:
+    """Connector-kind-agnostic: `ping()` is the one seam every connector
+    implements for "does this actually work", the same way `facts()` is the
+    one seam for "profile this". Kept out of `c.query("SELECT 1 AS ok")`
+    on purpose — that string is SQL, and MongoConnector.query() takes a
+    structured operation dict, not text, so it raised before ever reaching
+    a server. `_connect()` failing outright (bad host, bad password) was
+    also uncaught here for every kind, not just Mongo's — this one
+    try/except now covers both.
+    """
     conn = _connection(connection_id)
     c = Connector(conn.kind, conn.dsn(), conn.database)
     try:
-        result = c.query("SELECT 1 AS ok")
-        if result.error:
-            return {"ok": False, "error": result.error}
+        c.ping()
         return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     finally:
         c.close()
 

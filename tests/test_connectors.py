@@ -84,6 +84,23 @@ def test_select_is_permitted(connector):
     assert result.rows == [[3, "item-003"]]
 
 
+# ── ping: "does this connection actually work", independent of query() ─────
+
+def test_ping_succeeds_against_a_real_connection(connector):
+    connector.ping()  # raises on failure; a plain call is the assertion
+
+
+def test_ping_raises_on_a_connection_that_cannot_be_reached():
+    """The bug this guards: `/api/connections/{id}/test` used to call
+    `query("SELECT 1 AS ok")` directly and only checked `.error`, so a
+    failure in connecting at all (never mind what query() would have done)
+    raised past that check uncaught, past the endpoint's handler, into a
+    raw 500. `ping()` and its caller both must actually see this."""
+    bad = Connector("sqlite", {"path": "/nonexistent/path/does/not/exist.sqlite3"})
+    with pytest.raises(Exception):
+        bad.ping()
+
+
 # ── bounded previews ──────────────────────────────────────────────────────
 
 def test_preview_is_bounded_and_total_is_reported(connector):
@@ -257,6 +274,19 @@ def test_mongodb_dsn_includes_credentials_when_supplied():
     assert dsn == {"host": "localhost", "port": 27017,
                    "username": "reader", "password": "secret",
                    "authSource": "app"}
+
+
+def test_mongodb_overrides_ping():
+    """`BaseConnector.ping()`'s default runs `cursor().execute("SELECT 1")`,
+    which does not exist for Mongo — the same reason `query()` and `facts()`
+    are overridden rather than inherited. Caught live: `/api/connections/
+    {id}/test` called `query("SELECT 1 AS ok")` directly (the SQL-shaped
+    predecessor to `ping()`) and 500'd the first time anyone tested a Mongo
+    connection, because nothing here was ever exercised until then."""
+    from app.connectors.base import BaseConnector
+    from app.connectors.mongodb import MongoConnector
+
+    assert MongoConnector.ping is not BaseConnector.ping
 
 
 def test_mongodb_needs_no_query_rewriting_belt():

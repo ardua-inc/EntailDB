@@ -228,6 +228,22 @@ class BaseConnector:
         tables, joins = profile_database(self.runner(), self.dialect())
         return derive(tables, joins)
 
+    def ping(self) -> None:
+        """Verify this connection actually works. Raises on failure, returns
+        nothing on success — the caller decides how to report either.
+
+        Default: the same connect-and-execute path a real query already
+        uses, so this exercises nothing a real question wouldn't. A
+        connector whose query language isn't SQL (Mongo) overrides this,
+        the same seam `facts()` uses for the same reason.
+        """
+        conn = self._connect()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT 1")
+        finally:
+            cur.close()
+
     # ── connection ────────────────────────────────────────────────────────
     def _connect(self) -> Any:
         if self._conn is None:

@@ -15,6 +15,10 @@ dist/
 # macOS
 .DS_Store
 
+# Personal Claude Code permission overrides (this dev's lab-server SSH access,
+# not a team-wide policy)
+.claude/settings.local.json
+
 # Private working document. It names the source deployment and describes its
 # internals, which is exactly what a public repository should not carry. Kept
 # locally because it is still the record of what was deliberately not taken.

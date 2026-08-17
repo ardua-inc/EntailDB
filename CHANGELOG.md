@@ -2,6 +2,26 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.39] - 2026-08-17
+
+Fixed `/api/connections/{id}/test`, found live while migrating three test
+databases to a lab server: the endpoint called `query("SELECT 1 AS ok")`
+against every connector regardless of kind, which is SQL text that
+`MongoConnector.query()` — a structured-operation dict, not a string —
+raised on before ever reaching a server. Nobody had clicked Test on a Mongo
+connection before, so this was never exercised.
+
+Fixed with a new `BaseConnector.ping()` seam (default: the same
+connect-and-execute path a real query already uses; `MongoConnector`
+overrides it with `admin.command("ping")`, its own zero-cost reachability
+check) — the same shape `facts()` already established for "one method every
+connector implements, no per-kind branching in `app/main.py`". Along the
+way, a second gap surfaced and got the same fix for free: `_connect()`
+failing outright (bad host, bad password) was uncaught in the old handler
+for *every* connector kind, not just Mongo's, and would 500 rather than
+report `{"ok": false, "error": ...}`. Verified live against a real bad
+password.
+
 ## [0.1.38] - 2026-08-16
 
 Pie charts — the third `render_chart` type, deliberately deferred at 0.1.34.
