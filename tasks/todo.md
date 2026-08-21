@@ -250,9 +250,12 @@ backwards claim. **The audit step is not optional.**
    means the guard aimed at it cannot move a number, and `MEASUREMENT.md`'s own
    rule is that such a guard gets deleted rather than shipped. The case most
    likely to come back clean is `download-request`; the one whose null result
-   would matter most is `empty-collection`, since `phase1_empty` has never
-   fired in production either and this eval is the only evidence that control
-   will ever have.
+   would matter most is `empty-collection`, since production has never recorded
+   `phase1_empty` at all — the source system computed the field and dropped it
+   before writing the event, so "it never fired there" was never established
+   (fixed upstream v2.6.30; data starts 2026-08-21, not retroactive). Until
+   that accumulates, this eval is the only evidence that control will ever
+   have.
 2. **N=20 may not be enough.** If baseline lands near 0 or near 1 on a case,
    the interval swallows any guard effect. Consider N=40 on cases that come
    back extreme, and say in the published table which cases got which N.

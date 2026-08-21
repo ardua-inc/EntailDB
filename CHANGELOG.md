@@ -2,6 +2,47 @@
 
 Versions follow `x.y.z`. `z` bumps on every merge to `main`.
 
+## [0.1.40] - 2026-08-21
+
+A correction, and the shape of it is the reason it gets its own entry.
+
+`MEASUREMENT.md` §1 has said since the first commit that `phase1_empty` "has
+never fired" in the source deployment, and treated that as the reason the
+empty-collection guard has no production evidence behind it. The source system
+never recorded the field. It was set on the in-memory turn record, but the
+`query_complete` event payload wrote a fixed list of keys and that was not one
+of them — computed and discarded, every turn, for the entire window the
+document draws on.
+
+So the claim was not merely unsupported, it was unsupportable: an absence of
+evidence reported as evidence of absence, in the document whose whole subject
+is not doing that. Recorded rather than quietly amended, because this project's
+argument is that unverifiable claims are the failure mode, and the argument is
+worth less if its own are exempt.
+
+`runs/AUDIT.md` had already disputed the same sentence on different grounds —
+the guard landed 2026-07-09 and the `claude-sonnet-5` upgrade shipped the same
+day, so guard and model changed together and the silence could not be
+attributed to either. That reasoning was sound and is now moot: it argued about
+how to interpret a measurement that did not exist.
+
+Fixed upstream in the source system (v2.6.30, 2026-08-21), which now persists
+`phase1_empty` along with chart-audit counters that were being dropped the same
+way. Production data on this control begins from that date and **is not
+retroactive** — the earlier window stays permanently unknowable, which is the
+part no later fix can repair.
+
+Corrected in `MEASUREMENT.md` §1, `runs/AUDIT.md` and `tasks/todo.md`.
+`DESIGN.md` and `README.md` were checked and needed no change: both rest the
+guard's status on the eval evidence ("its trigger has never been reproduced by
+a fixture"), never on the production silence.
+
+Also in §1: the retrospective SQL is corrected. As printed it could not run —
+`sql_queries` is a JSON array of query strings, so `(data->>'sql_queries')::int`
+raises rather than yielding 0 — and it used the email-plus-nearest-timestamp
+join that §5 measures as inflating the result 45x. A query that errors on the
+schema it documents is a poor advertisement inside a measurement guide.
+
 ## [0.1.39] - 2026-08-17
 
 Fixed `/api/connections/{id}/test`, found live while migrating three test

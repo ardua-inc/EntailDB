@@ -16,8 +16,9 @@ Revised 2026-08-11.
 
 ## 1. Why retrospective log mining is not enough
 
-The source system logs `urls_stripped`, `phase2_empty` and `phase1_empty` per
-turn. Tempting, and insufficient.
+The source system logs `urls_stripped` and `phase2_empty` per turn. Tempting,
+and insufficient — and one of the three signals this section originally claimed
+to have turns out never to have been recorded at all (see problem 3).
 
 **The data (2026-04-03 → 2026-08-04, 356 completed turns):**
 
@@ -27,7 +28,7 @@ turn. Tempting, and insufficient.
 | turns with ≥1 URL stripped | 7 |
 | turns carrying `phase2_empty` | 188 |
 | `phase2_empty` true | 11 (5.9%) |
-| `phase1_empty` ever logged | **never** |
+| `phase1_empty` ever logged | **never — the key was computed and discarded** |
 
 Four problems:
 
@@ -36,10 +37,29 @@ Four problems:
    (fixed same-day by `8096f51`), and four were real tokens with a host prefix
    added. One clean catch in 201 turns is not a headline.
 2. **A guard that fires measures prevention, not prevalence.**
-3. **`phase1_empty` has never fired** — and the reason it is quoted as evidence
-   is itself broken. The guard landed 2026-07-09; the `claude-sonnet-5` upgrade
-   shipped **the same day**. Guard and model changed together, so production
-   cannot attribute the silence to either.
+3. **`phase1_empty` was never *observable*, which is not the same claim as
+   "never fired".** Earlier drafts of this document said the guard had never
+   fired in production. That was wrong, and the error is worth keeping on the
+   record because it is exactly the kind this project exists to catch: an
+   absence of evidence reported as evidence of absence.
+
+   The source system set `meta["phase1_empty"]` correctly, but its
+   `query_complete` event payload wrote a fixed set of keys and that was not
+   among them. The value was computed and dropped on every turn. Nothing about
+   whether the guard fires was ever recorded, so no conclusion — in either
+   direction — was available from that data.
+
+   `runs/AUDIT.md` independently disputed the same claim on different grounds:
+   the guard landed 2026-07-09 and the `claude-sonnet-5` upgrade shipped **the
+   same day**, so guard and model changed together and production could not
+   attribute the silence to either. That argument was right and is now
+   redundant — there was no silence to attribute, only an unwritten field.
+
+   Fixed upstream in the source system (v2.6.30, 2026-08-21): `phase1_empty` is
+   now persisted, along with the chart-audit counters that were being dropped
+   the same way. Production data on this control begins accumulating from that
+   date, and **is not retroactive** — the window before it stays permanently
+   unknowable.
 4. **No counterfactual.** Production has never run without the guards.
 
 **The one genuinely usable retrospective signal** is a proxy that depends on no
@@ -47,17 +67,31 @@ guard: *turns whose response contains specific figures while the turn issued
 zero queries.* Both halves are already logged.
 
 ```sql
-SELECT h.ts, left(h.content, 200)
-FROM analytics_chat_history h
-JOIN analytics_chat_events e
-  ON e.thread_id = h.thread_id
- AND e.event = 'query_complete'
- AND e.ts BETWEEN h.ts - interval '5 minutes' AND h.ts + interval '5 minutes'
-WHERE h.role = 'assistant'
-  AND (e.data->>'sql_queries')::int = 0
-  AND (e.data->>'tool_rounds')::int = 0
-  AND h.content ~ '\m\d{1,3}(,\d{3})+\M|\$\d|\m\d+(\.\d+)?%'
-ORDER BY h.ts DESC;
+-- Corrected. The first version of this query was wrong in two ways that §5
+-- documents in detail; both are worth knowing before you adapt it.
+--   * `sql_queries` is a JSON ARRAY of query strings, not a count, so
+--     `(data->>'sql_queries')::int` raises rather than returning 0.
+--   * Joining on email + nearest timestamp attaches a message to a
+--     NEIGHBOURING turn's event: 475 assistant messages against 356 events
+--     means not every message has one. That inflated the result 45x.
+WITH pairs AS (
+  SELECT DISTINCT ON (e.id)
+         e.data AS ev, h.ts, h.content
+  FROM analytics_chat_events e
+  JOIN analytics_chat_history h
+    ON h.thread_id::text = e.data->>'thread_id'
+   AND h.role = 'assistant'
+   AND h.ts BETWEEN e.ts - interval '3 minutes' AND e.ts + interval '3 minutes'
+  WHERE e.event = 'query_complete'
+    AND e.data ? 'thread_id'
+  ORDER BY e.id, abs(extract(epoch FROM (h.ts - e.ts)))   -- one event, one message
+)
+SELECT ts, left(content, 200)
+FROM pairs
+WHERE jsonb_array_length(ev->'sql_queries') = 0
+  AND (ev->>'tool_rounds')::int = 0
+  AND content ~ '[0-9]{1,3},[0-9]{3}|\$[0-9]|[0-9]+(\.[0-9]+)?%'
+ORDER BY ts DESC;
 ```
 
 Treat the result as a **candidate list for manual review**, not a metric.
@@ -176,7 +210,8 @@ State plainly:
 - **Which controls have no measurement behind them at all.** Today that is the
   empty-collection guard.
 - The honest retrospective section, including the one clean catch in 201 turns
-  and the `phase1_empty` confound.
+  and the fact that `phase1_empty` was never recorded, so production says
+  nothing about the empty-collection guard either way before 2026-08-21.
 - Fixtures, grader code and raw run records, so results are reproducible.
 
 Do **not** publish: a rate without N; a claim that any guard "eliminates"

@@ -76,11 +76,20 @@ evidence for two measurement defects, not as superseded drafts.
 The first measured run used Sonnet 5 only — a model that had never produced any
 of the failures being reproduced. This row corrects that.
 
-It also breaks a claim in `MEASUREMENT.md` §1. That document treats
+It also breaks a claim in `MEASUREMENT.md` §1. That document treated
 "`phase1_empty` has never fired since the guard landed 2026-07-09" as evidence
 the condition no longer occurs. The Sonnet 5 upgrade shipped **the same day**.
 Guard and model changed together; production cannot attribute the silence to
 either.
+
+**Superseded 2026-08-21, and the correction goes deeper than this row did.**
+The source system never persisted `phase1_empty` at all: it was set on the
+in-memory turn record, but the `query_complete` event payload wrote a fixed
+list of keys and that was not among them. So there was no silence to
+attribute — only a field that was computed and discarded on every turn. The
+confound identified above was real, but it argued about the interpretation of
+a measurement that did not exist. Fixed upstream in v2.6.30; data begins from
+2026-08-21 and is not retroactive.
 
 ## Result
 
